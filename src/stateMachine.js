@@ -11,7 +11,7 @@ const PERGUNTAS = {
   inicio: `Olá. Posso direcionar seu atendimento.\n\nDigite:\n1 - Já sou cliente\n2 - Trabalhista\n3 - Família\n4 - Outro assunto`,
 
   cliente_nome: 'Qual é o seu nome completo?',
-  cliente_canal_preferido: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
+  cliente_canal_contato: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
   cliente_mensagem: 'Descreva brevemente sua solicitação:',
   cliente_finalizado: null,
 
@@ -19,7 +19,7 @@ const PERGUNTAS = {
   trabalhista_impacto: 'Qual o impacto financeiro estimado?\n1 - Baixo\n2 - Médio\n3 - Alto',
   trabalhista_intencao: 'Qual sua intenção?\n1 - Buscar acordo\n2 - Entrar na Justiça\n3 - Ainda não sei',
   trabalhista_nome: 'Qual é o seu nome completo?',
-  trabalhista_canal_preferido: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
+  trabalhista_canal_contato: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
   trabalhista_descricao: 'Descreva mais detalhes do seu caso:',
   trabalhista_finalizado: null,
 
@@ -27,14 +27,14 @@ const PERGUNTAS = {
   familia_impacto: 'Qual o impacto estimado?\n1 - Baixo\n2 - Médio\n3 - Alto',
   familia_intencao: 'Qual sua intenção?\n1 - Buscar acordo\n2 - Processo judicial\n3 - Ainda não sei',
   familia_nome: 'Qual é o seu nome completo?',
-  familia_canal_preferido: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
+  familia_canal_contato: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
   familia_descricao: 'Descreva mais detalhes do seu caso:',
   familia_finalizado: null,
 
   outro_tipo: 'Qual tipo de assunto você precisa tratar?',
   outro_intencao: 'Qual sua intenção?\n1 - Informação\n2 - Contratar serviço\n3 - Reclamação',
   outro_nome: 'Qual é o seu nome completo?',
-  outro_canal_preferido: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
+  outro_canal_contato: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
   outro_descricao: 'Descreva sua solicitação:',
   outro_finalizado: null,
 };
@@ -147,9 +147,9 @@ async function transitar(sessao, estado, mensagem) {
 
     // ── CLIENTE ──
     case 'cliente_nome':
-      return { proximoEstado: 'cliente_canal_preferido', salvar: { nome: mensagem } };
+      return { proximoEstado: 'cliente_canal_contato', salvar: { nome: mensagem } };
 
-    case 'cliente_canal_preferido':
+    case 'cliente_canal_contato':
       return { proximoEstado: 'cliente_mensagem', salvar: { canalPreferido: mensagem } };
 
     case 'cliente_mensagem':
@@ -174,9 +174,9 @@ async function transitar(sessao, estado, mensagem) {
     }
 
     case 'trabalhista_nome':
-      return { proximoEstado: 'trabalhista_canal_preferido', salvar: { nome: mensagem } };
+      return { proximoEstado: 'trabalhista_canal_contato', salvar: { nome: mensagem } };
 
-    case 'trabalhista_canal_preferido':
+    case 'trabalhista_canal_contato':
       return { proximoEstado: 'trabalhista_descricao', salvar: { canalPreferido: mensagem } };
 
     case 'trabalhista_descricao':
@@ -201,9 +201,9 @@ async function transitar(sessao, estado, mensagem) {
     }
 
     case 'familia_nome':
-      return { proximoEstado: 'familia_canal_preferido', salvar: { nome: mensagem } };
+      return { proximoEstado: 'familia_canal_contato', salvar: { nome: mensagem } };
 
-    case 'familia_canal_preferido':
+    case 'familia_canal_contato':
       return { proximoEstado: 'familia_descricao', salvar: { canalPreferido: mensagem } };
 
     case 'familia_descricao':
@@ -221,9 +221,9 @@ async function transitar(sessao, estado, mensagem) {
     }
 
     case 'outro_nome':
-      return { proximoEstado: 'outro_canal_preferido', salvar: { nome: mensagem } };
+      return { proximoEstado: 'outro_canal_contato', salvar: { nome: mensagem } };
 
-    case 'outro_canal_preferido':
+    case 'outro_canal_contato':
       return { proximoEstado: 'outro_descricao', salvar: { canalPreferido: mensagem } };
 
     case 'outro_descricao':
