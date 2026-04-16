@@ -9,9 +9,10 @@ const URGENT_KEYWORDS = ['urgente', 'advogado', 'falar com alguém', 'falar com 
 
 // ─── Perguntas por estado ──────────────────────────────────────────────────
 const PERGUNTAS = {
-  inicio: `Olá! Aqui é do Santos & Bastos Advogados 👋\n\nMe conta o que aconteceu 👇`,
-  inicio_menu: `Posso te ajudar melhor se você me disser:\n\n1 - Já sou cliente\n2 - Problema no trabalho\n3 - Questões de família\n4 - Outro assunto`,
-  inicio_detalhe: `Pode me explicar um pouco melhor o que está acontecendo? 👇`,
+  inicio: `Olá! Aqui é do Santos & Bastos Advogados 👋\n\nVou te ajudar a entender seu caso rapidinho.\n\nMe conta em uma frase o que aconteceu:\n_(ex: fui demitido, quero me divorciar, tenho uma dívida...)_`,
+  inicio_menu: `Entendi 👍\n\nPra te direcionar melhor, me diz qual dessas opções chega mais perto:\n\n1 - Problema no trabalho\n2 - Questão de família\n3 - Já sou cliente\n4 - Outro assunto`,
+  inicio_detalhe: `Pode me explicar um pouco melhor o que está acontecendo?\n_(ex: fui demitido, quero me divorciar, tenho uma dívida...)_`,
+  inicio_advogado: `Claro 👍\n\nVocê já é cliente do escritório ou é um caso novo?\n\n1 - Já sou cliente\n2 - É um caso novo`,
 
   cliente_nome: 'Qual é o seu nome completo?',
   cliente_canal_contato: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
@@ -47,7 +48,8 @@ const PERGUNTAS = {
 
 // ─── Classificação por texto livre ────────────────────────────────────────
 function classificarPorTexto(mensagem) {
-  if (/sou cliente|já cliente|ja cliente|tenho processo|meu processo|quero falar com advogado|falar com o advogado/.test(mensagem)) return 'cliente';
+  if (/quero falar com advogado|falar com advogado|falar com o advogado|preciso de um advogado|quero um advogado/.test(mensagem)) return 'advogado';
+  if (/sou cliente|já cliente|ja cliente|tenho processo|meu processo/.test(mensagem)) return 'cliente';
   if (/(demitido|me demitiram|fui demitido|mandaram embora|mandado embora|fui mandado embora|dispensado|fui dispensado|desligado|fui desligado|perdi o emprego|perdi meu emprego|direito trabalhista|causa trabalhista|salário atrasado|salario atrasado|rescisão|rescisao|fgts|aviso prévio|aviso previo|justa causa|horas extras|carteira assinada|assédio no trabalho|acidente de trabalho|férias não pagas|ferias nao pagas)/.test(mensagem)) return 'trabalhista';
   if (/(guarda|pensão|pensao|alimentos|divórcio|divorcio|separação|separacao|família|familia|cônjuge|conjuge|filho|filha|casamento|inventário|inventario|herança|heranca|partilha)/.test(mensagem)) return 'familia';
   return null;
@@ -159,12 +161,13 @@ async function transitar(sessao, estado, mensagem) {
     // ── INICIO ──
     case 'inicio': {
       let fluxo = null;
-      if (mensagem === '1') fluxo = 'cliente';
-      else if (mensagem === '2') fluxo = 'trabalhista';
-      else if (mensagem === '3') fluxo = 'familia';
+      if (mensagem === '1') fluxo = 'trabalhista';
+      else if (mensagem === '2') fluxo = 'familia';
+      else if (mensagem === '3') fluxo = 'cliente';
       else if (mensagem === '4') fluxo = 'outros';
       else fluxo = classificarPorTexto(mensagem);
 
+      if (fluxo === 'advogado') return { proximoEstado: 'inicio_advogado', salvar: {} };
       if (!fluxo) return { proximoEstado: 'inicio_detalhe', salvar: {} };
 
       const mapaEstado = {
@@ -176,14 +179,22 @@ async function transitar(sessao, estado, mensagem) {
       return { proximoEstado: mapaEstado[fluxo], salvar: { fluxo, area: fluxo } };
     }
 
+    // ── INICIO ADVOGADO (quero falar com advogado) ──
+    case 'inicio_advogado': {
+      if (mensagem === '1') return { proximoEstado: 'cliente_nome', salvar: { fluxo: 'cliente', area: 'cliente' } };
+      return { proximoEstado: 'trabalhista_situacao', salvar: { fluxo: 'trabalhista', area: 'trabalhista' } };
+    }
+
     // ── INICIO DETALHE (fallback progressivo) ──
     case 'inicio_detalhe': {
       let fluxo = null;
-      if (mensagem === '1') fluxo = 'cliente';
-      else if (mensagem === '2') fluxo = 'trabalhista';
-      else if (mensagem === '3') fluxo = 'familia';
+      if (mensagem === '1') fluxo = 'trabalhista';
+      else if (mensagem === '2') fluxo = 'familia';
+      else if (mensagem === '3') fluxo = 'cliente';
       else if (mensagem === '4') fluxo = 'outros';
       else fluxo = classificarPorTexto(mensagem);
+
+      if (fluxo === 'advogado') return { proximoEstado: 'inicio_advogado', salvar: {} };
       if (!fluxo) return { proximoEstado: 'inicio_menu', salvar: {} };
 
       const mapaEstado = {
@@ -198,12 +209,13 @@ async function transitar(sessao, estado, mensagem) {
     // ── INICIO MENU (último recurso) ──
     case 'inicio_menu': {
       let fluxo = null;
-      if (mensagem === '1') fluxo = 'cliente';
-      else if (mensagem === '2') fluxo = 'trabalhista';
-      else if (mensagem === '3') fluxo = 'familia';
+      if (mensagem === '1') fluxo = 'trabalhista';
+      else if (mensagem === '2') fluxo = 'familia';
+      else if (mensagem === '3') fluxo = 'cliente';
       else if (mensagem === '4') fluxo = 'outros';
       else fluxo = classificarPorTexto(mensagem);
 
+      if (fluxo === 'advogado') return { proximoEstado: 'inicio_advogado', salvar: {} };
       if (!fluxo) return { proximoEstado: 'outro_tipo', salvar: { fluxo: 'outros', area: 'outros' } };
 
       const mapaEstado = {

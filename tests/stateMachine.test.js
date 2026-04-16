@@ -80,25 +80,25 @@ describe('entrada — classificação por texto livre', () => {
 });
 
 describe('entrada — menu numérico', () => {
-  test('"1" em inicio_detalhe → cliente_nome', async () => {
+  test('"1" em inicio_detalhe → trabalhista_situacao', async () => {
     await processar('11999', 'oi', 'whatsapp');
     const result = await processar('11999', '1', 'whatsapp');
-    expect(result.estado).toBe('cliente_nome');
-    expect(result.fluxo).toBe('cliente');
-  });
-
-  test('"2" em inicio_detalhe → trabalhista_situacao', async () => {
-    await processar('11999', 'oi', 'whatsapp');
-    const result = await processar('11999', '2', 'whatsapp');
     expect(result.estado).toBe('trabalhista_situacao');
     expect(result.fluxo).toBe('trabalhista');
   });
 
-  test('"3" em inicio_detalhe → familia_situacao', async () => {
+  test('"2" em inicio_detalhe → familia_situacao', async () => {
     await processar('11999', 'oi', 'whatsapp');
-    const result = await processar('11999', '3', 'whatsapp');
+    const result = await processar('11999', '2', 'whatsapp');
     expect(result.estado).toBe('familia_situacao');
     expect(result.fluxo).toBe('familia');
+  });
+
+  test('"3" em inicio_detalhe → cliente_nome', async () => {
+    await processar('11999', 'oi', 'whatsapp');
+    const result = await processar('11999', '3', 'whatsapp');
+    expect(result.estado).toBe('cliente_nome');
+    expect(result.fluxo).toBe('cliente');
   });
 
   test('"4" em inicio_detalhe → outro_tipo', async () => {

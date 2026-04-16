@@ -27,7 +27,11 @@ app.post('/webhook', async (req, res) => {
 
     let body = req.body;
     if (isTelegram) {
-      if (!tgMsg.text) return res.sendStatus(200); // ignora áudio, foto, etc
+      if (!tgMsg.text) {
+        // áudio, foto, sticker, etc — pede que escreva
+        await sendTelegram(tgMsg.chat.id, 'Recebi seu áudio 😊\n\nPra te ajudar mais rápido, pode me escrever resumido aqui o que aconteceu?');
+        return res.sendStatus(200);
+      }
       body = {
         sessao: String(tgMsg.chat.id),
         mensagem: tgMsg.text,
