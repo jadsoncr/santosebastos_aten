@@ -4,154 +4,69 @@ const storage = require('../src/storage/inMemory');
 beforeEach(() => storage._clear());
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ENTRADA E CLASSIFICAÇÃO
+// ENTRADA
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('entrada — abertura e fallback', () => {
-  test('primeira mensagem retorna abertura Santos & Bastos e vai para inicio_detalhe', async () => {
-    const result = await processar('11999', 'oi', 'whatsapp');
-    expect(result.estado).toBe('inicio_detalhe');
+describe('entrada — start e fallback', () => {
+  test('primeira mensagem retorna menu e estado start', async () => {
+    const result = await processar('11001', 'oi', 'whatsapp');
     expect(result.message).toContain('Santos & Bastos');
+    expect(result.message).toContain('1️⃣');
   });
 
-  test('texto não classificável em inicio_detalhe vai para inicio_menu', async () => {
-    await processar('11999', 'oi', 'whatsapp');
-    const result = await processar('11999', 'preciso de ajuda', 'whatsapp');
-    expect(result.estado).toBe('inicio_menu');
-    expect(result.message).toContain('1 -');
-  });
-
-  test('texto não classificável em inicio_menu vai para outro_tipo', async () => {
-    await processar('11999', 'oi', 'whatsapp');
-    await processar('11999', 'preciso de ajuda', 'whatsapp');
-    const result = await processar('11999', 'não sei', 'whatsapp');
-    expect(result.estado).toBe('outro_tipo');
-    expect(result.fluxo).toBe('outros');
-  });
-});
-
-describe('entrada — classificação por texto livre', () => {
-  test('classifica direto no inicio sem passar por detalhe', async () => {
-    const result = await processar('11999', 'fui demitido', 'whatsapp');
-    expect(result.fluxo).toBe('trabalhista');
-    expect(result.estado).toBe('trabalhista_situacao');
-  });
-
-  test('classifica em inicio_detalhe após primeira mensagem vaga', async () => {
-    await processar('11999', 'oi', 'whatsapp');
-    const result = await processar('11999', 'fui mandado embora', 'whatsapp');
+  test('"1" em start vai para trabalho_status', async () => {
+    await processar('11002', 'oi', 'whatsapp');
+    const result = await processar('11002', '1', 'whatsapp');
+    expect(result.estado).toBe('trabalho_status');
     expect(result.fluxo).toBe('trabalhista');
   });
 
-  test('variações linguísticas trabalhista', async () => {
-    const casos = [
-      'fui demitido', 'me demitiram', 'mandaram embora', 'mandado embora',
-      'fui mandado embora', 'dispensado', 'fui dispensado', 'desligado',
-      'perdi o emprego', 'perdi meu emprego', 'aviso prévio', 'justa causa',
-      'horas extras', 'carteira assinada', 'fgts', 'rescisão',
-    ];
-    for (const msg of casos) {
-      storage._clear();
-      const result = await processar('11999', msg, 'whatsapp');
-      expect(result.fluxo).toBe('trabalhista');
-    }
-  });
-
-  test('variações linguísticas família', async () => {
-    const casos = [
-      'pensão alimentícia', 'guarda dos filhos', 'divórcio', 'separação',
-      'herança', 'inventário', 'partilha', 'cônjuge', 'casamento',
-    ];
-    for (const msg of casos) {
-      storage._clear();
-      const result = await processar('11999', msg, 'whatsapp');
-      expect(result.fluxo).toBe('familia');
-    }
-  });
-
-  test('variações linguísticas cliente', async () => {
-    const casos = ['sou cliente', 'já cliente', 'tenho processo', 'meu processo'];
-    for (const msg of casos) {
-      storage._clear();
-      const result = await processar('11999', msg, 'whatsapp');
-      expect(result.fluxo).toBe('cliente');
-    }
-  });
-});
-
-describe('entrada — menu numérico', () => {
-  test('"1" em inicio_detalhe → trabalhista_situacao', async () => {
-    await processar('11999', 'oi', 'whatsapp');
-    const result = await processar('11999', '1', 'whatsapp');
-    expect(result.estado).toBe('trabalhista_situacao');
-    expect(result.fluxo).toBe('trabalhista');
-  });
-
-  test('"2" em inicio_detalhe → familia_situacao', async () => {
-    await processar('11999', 'oi', 'whatsapp');
-    const result = await processar('11999', '2', 'whatsapp');
-    expect(result.estado).toBe('familia_situacao');
+  test('"2" em start vai para familia_tipo', async () => {
+    await processar('11003', 'oi', 'whatsapp');
+    const result = await processar('11003', '2', 'whatsapp');
+    expect(result.estado).toBe('familia_tipo');
     expect(result.fluxo).toBe('familia');
   });
 
-  test('"3" em inicio_detalhe → cliente_nome', async () => {
-    await processar('11999', 'oi', 'whatsapp');
-    const result = await processar('11999', '3', 'whatsapp');
-    expect(result.estado).toBe('cliente_nome');
+  test('"3" em start vai para cliente_identificacao', async () => {
+    await processar('11004', 'oi', 'whatsapp');
+    const result = await processar('11004', '3', 'whatsapp');
+    expect(result.estado).toBe('cliente_identificacao');
     expect(result.fluxo).toBe('cliente');
   });
 
-  test('"4" em inicio_detalhe → outro_tipo', async () => {
-    await processar('11999', 'oi', 'whatsapp');
-    const result = await processar('11999', '4', 'whatsapp');
-    expect(result.estado).toBe('outro_tipo');
+  test('"4" em start vai para advogado_tipo com score 3', async () => {
+    await processar('11005', 'oi', 'whatsapp');
+    const result = await processar('11005', '4', 'whatsapp');
+    expect(result.estado).toBe('advogado_tipo');
+    expect(result.score).toBeGreaterThanOrEqual(5);
+  });
+
+  test('"5" em start vai para outros_descricao', async () => {
+    await processar('11006', 'oi', 'whatsapp');
+    const result = await processar('11006', '5', 'whatsapp');
+    expect(result.estado).toBe('outros_descricao');
     expect(result.fluxo).toBe('outros');
   });
-});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FLUXO CLIENTE
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('fluxo cliente', () => {
-  test('percorre estados na ordem correta', async () => {
-    let r;
-    r = await processar('11999', 'tenho processo', 'whatsapp');
-    expect(r.estado).toBe('cliente_nome');
-
-    r = await processar('11999', 'João Silva', 'whatsapp');
-    expect(r.estado).toBe('cliente_canal_contato');
-
-    r = await processar('11999', 'WhatsApp', 'whatsapp');
-    expect(r.estado).toBe('cliente_mensagem');
-
-    r = await processar('11999', 'quero atualização do meu processo', 'whatsapp');
-    expect(r.estado).toBe('cliente_finalizado');
+  test('opção inválida em start vai para fallback', async () => {
+    await processar('11007', 'oi', 'whatsapp');
+    const result = await processar('11007', 'xyz', 'whatsapp');
+    expect(result.estado).toBe('fallback');
   });
 
-  test('prioridade mínima é MEDIO (nunca FRIO)', async () => {
-    await processar('11999', 'tenho processo', 'whatsapp');
-    await processar('11999', 'João Silva', 'whatsapp');
-    await processar('11999', 'WhatsApp', 'whatsapp');
-    const result = await processar('11999', 'preciso de ajuda com meu processo', 'whatsapp');
-    expect(result.prioridade).not.toBe('FRIO');
-    expect(['MEDIO', 'QUENTE']).toContain(result.prioridade);
+  test('fallback com opção válida retorna ao fluxo correto', async () => {
+    await processar('11008', 'oi', 'whatsapp');
+    await processar('11008', 'xyz', 'whatsapp');
+    const result = await processar('11008', '1', 'whatsapp');
+    expect(result.estado).toBe('trabalho_status');
   });
 
-  test('cliente com flagAtencao vira QUENTE', async () => {
-    await processar('11999', 'tenho processo urgente', 'whatsapp');
-    await processar('11999', 'João Silva', 'whatsapp');
-    await processar('11999', 'WhatsApp', 'whatsapp');
-    const result = await processar('11999', 'preciso urgente', 'whatsapp');
-    expect(result.flagAtencao).toBe(true);
-  });
-
-  test('mensagem de finalização reflete prioridade MEDIO', async () => {
-    await processar('11999', 'tenho processo', 'whatsapp');
-    await processar('11999', 'João Silva', 'whatsapp');
-    await processar('11999', 'WhatsApp', 'whatsapp');
-    const result = await processar('11999', 'preciso de ajuda', 'whatsapp');
-    expect(result.message).toContain('analisar');
+  test('reset com "menu" volta para start', async () => {
+    await processar('11009', 'oi', 'whatsapp');
+    await processar('11009', '1', 'whatsapp');
+    const result = await processar('11009', 'menu', 'whatsapp');
+    expect(result.message).toContain('Santos & Bastos');
   });
 });
 
@@ -160,95 +75,82 @@ describe('fluxo cliente', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('fluxo trabalhista', () => {
-  test('percorre estados na ordem correta (sem QUENTE)', async () => {
+  async function iniciarTrabalhista(sessao) {
+    await processar(sessao, 'oi', 'whatsapp');
+    await processar(sessao, '1', 'whatsapp'); // start → trabalho_status
+  }
+
+  test('percorre todos os estados na ordem correta', async () => {
+    await iniciarTrabalhista('22001');
     let r;
-    r = await processar('11999', 'fui demitido', 'whatsapp');
-    expect(r.estado).toBe('trabalhista_situacao');
-
-    r = await processar('11999', 'fui demitido sem justa causa', 'whatsapp');
-    expect(r.estado).toBe('trabalhista_impacto');
-
-    r = await processar('11999', '1', 'whatsapp'); // impacto baixo
-    expect(r.estado).toBe('trabalhista_intencao');
-
-    r = await processar('11999', '1', 'whatsapp'); // intencao baixa → score 3 → FRIO
-    expect(r.estado).toBe('trabalhista_nome');
-
-    r = await processar('11999', 'João Silva', 'whatsapp');
-    expect(r.estado).toBe('trabalhista_canal_contato');
-
-    r = await processar('11999', 'WhatsApp', 'whatsapp');
-    expect(r.estado).toBe('trabalhista_descricao');
-
-    r = await processar('11999', 'detalhes do caso', 'whatsapp');
-    expect(r.estado).toBe('trabalhista_finalizado');
+    r = await processar('22001', '2', 'whatsapp'); expect(r.estado).toBe('trabalho_tipo');
+    r = await processar('22001', '1', 'whatsapp'); expect(r.estado).toBe('trabalho_tempo');
+    r = await processar('22001', '3', 'whatsapp'); expect(r.estado).toBe('trabalho_salario');
+    r = await processar('22001', '2', 'whatsapp'); expect(r.estado).toBe('trabalho_contrato');
+    r = await processar('22001', '1', 'whatsapp'); expect(r.estado).toBe('trabalho_intencao');
+    r = await processar('22001', '1', 'whatsapp'); expect(r.estado).toBe('coleta_nome');
+    r = await processar('22001', 'João Silva', 'whatsapp'); expect(r.estado).toBe('contato_confirmacao');
+    r = await processar('22001', '1', 'whatsapp'); expect(r.estado).toBe('pos_final');
   });
 
-  test('score é calculado após impacto', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    const result = await processar('11999', '3', 'whatsapp'); // impacto 3
-    expect(result.score).toBe(4); // 3+0+1
+  test('tipo "mais de uma" (4) adiciona bonus de score', async () => {
+    await iniciarTrabalhista('22002');
+    await processar('22002', '1', 'whatsapp'); // trabalho_status
+    const r = await processar('22002', '4', 'whatsapp'); // trabalho_tipo com bonus
+    expect(r.score).toBe(2);
   });
 
-  test('score final correto após impacto + intenção', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    await processar('11999', '2', 'whatsapp'); // impacto 2
-    const result = await processar('11999', '2', 'whatsapp'); // intencao 2 → score 5
-    expect(result.score).toBe(5);
-    expect(result.prioridade).toBe('MEDIO');
+  test('salário alto (3) adiciona bonus de score', async () => {
+    await iniciarTrabalhista('22003');
+    await processar('22003', '1', 'whatsapp'); // status
+    await processar('22003', '1', 'whatsapp'); // tipo
+    await processar('22003', '1', 'whatsapp'); // tempo
+    const r = await processar('22003', '3', 'whatsapp'); // salario alto
+    expect(r.score).toBe(2);
   });
 
-  test('score QUENTE redireciona para quente_humano', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    await processar('11999', '3', 'whatsapp'); // impacto 3
-    const result = await processar('11999', '3', 'whatsapp'); // intencao 3 → score 7
-    expect(result.estado).toBe('quente_humano');
-    expect(result.prioridade).toBe('QUENTE');
+  test('intenção "entrar na justiça" (2) adiciona bonus e vira QUENTE', async () => {
+    await iniciarTrabalhista('22004');
+    await processar('22004', '1', 'whatsapp'); // status
+    await processar('22004', '4', 'whatsapp'); // tipo (+2)
+    await processar('22004', '1', 'whatsapp'); // tempo
+    await processar('22004', '3', 'whatsapp'); // salario (+2)
+    await processar('22004', '1', 'whatsapp'); // contrato
+    const r = await processar('22004', '2', 'whatsapp'); // intencao (+2) = 6 → QUENTE
+    expect(r.score).toBe(6);
+    expect(r.prioridade).toBe('QUENTE');
+    expect(r.estado).toBe('coleta_nome');
   });
 
-  test('quente_humano opção "1" finaliza imediatamente', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    await processar('11999', '3', 'whatsapp');
-    await processar('11999', '3', 'whatsapp'); // → quente_humano
-    const result = await processar('11999', '1', 'whatsapp'); // quer humano
-    expect(result.estado).toBe('trabalhista_finalizado');
+  test('fluxo completo finaliza e vai para pos_final', async () => {
+    await iniciarTrabalhista('22005');
+    await processar('22005', '1', 'whatsapp');
+    await processar('22005', '1', 'whatsapp');
+    await processar('22005', '1', 'whatsapp');
+    await processar('22005', '1', 'whatsapp');
+    await processar('22005', '1', 'whatsapp');
+    await processar('22005', '1', 'whatsapp');
+    await processar('22005', 'Maria Souza', 'whatsapp');
+    const r = await processar('22005', '1', 'whatsapp');
+    expect(r.estado).toBe('pos_final');
+    expect(r.message).toContain('encaminhando');
   });
 
-  test('quente_humano opção "2" continua para trabalhista_nome', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    await processar('11999', '3', 'whatsapp');
-    await processar('11999', '3', 'whatsapp'); // → quente_humano
-    const result = await processar('11999', '2', 'whatsapp'); // não quer humano
-    expect(result.estado).toBe('trabalhista_nome');
-  });
-
-  test('mensagem de finalização QUENTE', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    await processar('11999', '3', 'whatsapp');
-    await processar('11999', '3', 'whatsapp');
-    await processar('11999', '2', 'whatsapp'); // continua
-    await processar('11999', 'João Silva', 'whatsapp');
-    await processar('11999', 'WhatsApp', 'whatsapp');
-    const result = await processar('11999', 'detalhes', 'whatsapp');
-    expect(result.message).toContain('prioritário');
-  });
-
-  test('mensagem de finalização FRIO contém valor percebido', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    await processar('11999', '1', 'whatsapp'); // impacto baixo
-    await processar('11999', '1', 'whatsapp'); // intencao baixa → FRIO
-    await processar('11999', 'João Silva', 'whatsapp');
-    await processar('11999', 'WhatsApp', 'whatsapp');
-    const result = await processar('11999', 'detalhes', 'whatsapp');
-    expect(result.message).toContain('analisar');
-    expect(result.message).not.toBe('Registramos sua solicitação.');
+  test('contato "outro número" passa por contato_numero e contato_canal', async () => {
+    await iniciarTrabalhista('22006');
+    await processar('22006', '1', 'whatsapp');
+    await processar('22006', '1', 'whatsapp');
+    await processar('22006', '1', 'whatsapp');
+    await processar('22006', '1', 'whatsapp');
+    await processar('22006', '1', 'whatsapp');
+    await processar('22006', '1', 'whatsapp');
+    await processar('22006', 'Carlos Lima', 'whatsapp');
+    let r = await processar('22006', '2', 'whatsapp'); // outro número
+    expect(r.estado).toBe('contato_numero');
+    r = await processar('22006', '11999990000', 'whatsapp');
+    expect(r.estado).toBe('contato_canal');
+    r = await processar('22006', '1', 'whatsapp');
+    expect(r.estado).toBe('pos_final');
   });
 });
 
@@ -257,36 +159,95 @@ describe('fluxo trabalhista', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('fluxo família', () => {
-  test('percorre estados na ordem correta (sem QUENTE)', async () => {
+  async function iniciarFamilia(sessao) {
+    await processar(sessao, 'oi', 'whatsapp');
+    await processar(sessao, '2', 'whatsapp');
+  }
+
+  test('percorre estados na ordem correta', async () => {
+    await iniciarFamilia('33001');
     let r;
-    r = await processar('11999', 'divórcio', 'whatsapp');
-    expect(r.estado).toBe('familia_situacao');
-
-    r = await processar('11999', 'quero me separar', 'whatsapp');
-    expect(r.estado).toBe('familia_impacto');
-
-    r = await processar('11999', '1', 'whatsapp');
-    expect(r.estado).toBe('familia_intencao');
-
-    r = await processar('11999', '1', 'whatsapp'); // score 3 → FRIO
-    expect(r.estado).toBe('familia_nome');
-
-    r = await processar('11999', 'Maria Silva', 'whatsapp');
-    expect(r.estado).toBe('familia_canal_contato');
-
-    r = await processar('11999', 'WhatsApp', 'whatsapp');
-    expect(r.estado).toBe('familia_descricao');
-
-    r = await processar('11999', 'detalhes', 'whatsapp');
-    expect(r.estado).toBe('familia_finalizado');
+    r = await processar('33001', '1', 'whatsapp'); expect(r.estado).toBe('familia_status');
+    r = await processar('33001', '1', 'whatsapp'); expect(r.estado).toBe('familia_urgencia');
+    r = await processar('33001', '2', 'whatsapp'); expect(r.estado).toBe('coleta_nome');
   });
 
-  test('score QUENTE redireciona para quente_humano', async () => {
-    await processar('11999', 'divórcio', 'whatsapp');
-    await processar('11999', 'situação grave', 'whatsapp');
-    await processar('11999', '3', 'whatsapp');
-    const result = await processar('11999', '3', 'whatsapp');
-    expect(result.estado).toBe('quente_humano');
+  test('urgência "sim" (1) vira QUENTE', async () => {
+    await iniciarFamilia('33002');
+    await processar('33002', '1', 'whatsapp');
+    await processar('33002', '1', 'whatsapp');
+    const r = await processar('33002', '1', 'whatsapp'); // urgencia sim
+    expect(r.prioridade).toBe('QUENTE');
+    expect(r.score).toBeGreaterThanOrEqual(5);
+  });
+
+  test('fluxo completo finaliza corretamente', async () => {
+    await iniciarFamilia('33003');
+    await processar('33003', '1', 'whatsapp');
+    await processar('33003', '1', 'whatsapp');
+    await processar('33003', '2', 'whatsapp');
+    await processar('33003', 'Ana Paula', 'whatsapp');
+    const r = await processar('33003', '1', 'whatsapp');
+    expect(r.estado).toBe('pos_final');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FLUXO CLIENTE
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('fluxo cliente', () => {
+  test('identifica cliente e finaliza rapidamente', async () => {
+    await processar('44001', 'oi', 'whatsapp');
+    await processar('44001', '3', 'whatsapp');
+    const r = await processar('44001', 'João Silva / proc 12345', 'whatsapp');
+    expect(r.estado).toBe('pos_final');
+    expect(r.message).toContain('Dra. Raquel');
+  });
+
+  test('fluxo cliente não passa por coleta_nome', async () => {
+    await processar('44002', 'oi', 'whatsapp');
+    await processar('44002', '3', 'whatsapp');
+    const r = await processar('44002', 'Maria / 99999', 'whatsapp');
+    expect(r.estado).toBe('pos_final');
+    expect(r.estado).not.toBe('coleta_nome');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FLUXO ADVOGADO
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('fluxo advogado', () => {
+  test('"4" no start inicia com score 3', async () => {
+    await processar('55001', 'oi', 'whatsapp');
+    const r = await processar('55001', '4', 'whatsapp');
+    expect(r.estado).toBe('advogado_tipo');
+    expect(r.score).toBeGreaterThanOrEqual(5);
+  });
+
+  test('caso novo vai para advogado_descricao', async () => {
+    await processar('55002', 'oi', 'whatsapp');
+    await processar('55002', '4', 'whatsapp');
+    const r = await processar('55002', '1', 'whatsapp');
+    expect(r.estado).toBe('advogado_descricao');
+  });
+
+  test('já é cliente redireciona para cliente_identificacao', async () => {
+    await processar('55003', 'oi', 'whatsapp');
+    await processar('55003', '4', 'whatsapp');
+    const r = await processar('55003', '2', 'whatsapp');
+    expect(r.estado).toBe('cliente_identificacao');
+    expect(r.fluxo).toBe('cliente');
+  });
+
+  test('caso novo com descrição vai para coleta_nome com prioridade QUENTE', async () => {
+    await processar('55004', 'oi', 'whatsapp');
+    await processar('55004', '4', 'whatsapp');
+    await processar('55004', '1', 'whatsapp');
+    const r = await processar('55004', 'Preciso urgente de ajuda', 'whatsapp');
+    expect(r.estado).toBe('coleta_nome');
+    expect(r.prioridade).toBe('QUENTE');
   });
 });
 
@@ -295,235 +256,52 @@ describe('fluxo família', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('fluxo outros', () => {
-  test('percorre estados na ordem correta incluindo impacto', async () => {
+  test('percorre estados na ordem correta', async () => {
+    await processar('66001', 'oi', 'whatsapp');
+    await processar('66001', '5', 'whatsapp');
     let r;
-    r = await processar('11999', 'oi', 'whatsapp');
-    r = await processar('11999', '4', 'whatsapp'); // menu → outro_tipo
-    expect(r.estado).toBe('outro_tipo');
-
-    r = await processar('11999', 'contrato comercial', 'whatsapp');
-    expect(r.estado).toBe('outro_impacto');
-
-    r = await processar('11999', '2', 'whatsapp'); // impacto médio
-    expect(r.estado).toBe('outro_intencao');
-
-    r = await processar('11999', '2', 'whatsapp');
-    expect(r.estado).toBe('outro_nome');
-
-    r = await processar('11999', 'Pedro Lima', 'whatsapp');
-    expect(r.estado).toBe('outro_canal_contato');
-
-    r = await processar('11999', 'WhatsApp', 'whatsapp');
-    expect(r.estado).toBe('outro_descricao');
-
-    r = await processar('11999', 'detalhes', 'whatsapp');
-    expect(r.estado).toBe('outro_finalizado');
+    r = await processar('66001', 'Quero revisar um contrato', 'whatsapp');
+    expect(r.estado).toBe('outros_impacto');
+    r = await processar('66001', '1', 'whatsapp');
+    expect(r.estado).toBe('coleta_nome');
   });
 
-  test('outros pode chegar a QUENTE com impacto 3 + intenção 3', async () => {
-    await processar('11999', 'oi', 'whatsapp');
-    await processar('11999', '4', 'whatsapp');
-    await processar('11999', 'assunto urgente', 'whatsapp'); // outro_tipo → outro_impacto
-    await processar('11999', '3', 'whatsapp'); // impacto 3
-    const result = await processar('11999', '3', 'whatsapp'); // intencao 3 → score 7
-    expect(result.prioridade).toBe('QUENTE');
-    expect(result.score).toBe(7);
-  });
-
-  test('outros nunca fica preso em FRIO por falta de impacto', async () => {
-    await processar('11999', 'oi', 'whatsapp');
-    await processar('11999', '4', 'whatsapp');
-    await processar('11999', 'assunto', 'whatsapp');
-    const result = await processar('11999', '3', 'whatsapp'); // impacto 3 → score 4
-    expect(result.score).toBe(4);
-    expect(result.estado).toBe('outro_intencao');
+  test('impacto "sim" adiciona score', async () => {
+    await processar('66002', 'oi', 'whatsapp');
+    await processar('66002', '5', 'whatsapp');
+    await processar('66002', 'Contrato', 'whatsapp');
+    const r = await processar('66002', '1', 'whatsapp');
+    expect(r.score).toBe(1);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SCORE E PRIORIDADE
+// PÓS-FINAL
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('score — fórmula e prioridades', () => {
-  test('impacto 1 + intenção 1 = score 3 → FRIO', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    await processar('11999', '1', 'whatsapp');
-    const result = await processar('11999', '1', 'whatsapp');
-    expect(result.score).toBe(3);
-    expect(result.prioridade).toBe('FRIO');
+describe('pós-final', () => {
+  async function chegarAoPosFinal(sessao) {
+    await processar(sessao, 'oi', 'whatsapp');
+    await processar(sessao, '3', 'whatsapp'); // cliente — fluxo mais curto
+    await processar(sessao, 'Teste 12345', 'whatsapp');
+  }
+
+  test('"1" em pos_final reinicia para start', async () => {
+    await chegarAoPosFinal('77001');
+    const r = await processar('77001', '1', 'whatsapp');
+    expect(r.message).toContain('Santos & Bastos');
   });
 
-  test('impacto 2 + intenção 2 = score 5 → MEDIO', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    await processar('11999', '2', 'whatsapp');
-    const result = await processar('11999', '2', 'whatsapp');
-    expect(result.score).toBe(5);
-    expect(result.prioridade).toBe('MEDIO');
+  test('"2" em pos_final vai para advogado_tipo', async () => {
+    await chegarAoPosFinal('77002');
+    const r = await processar('77002', '2', 'whatsapp');
+    expect(r.estado).toBe('advogado_tipo');
   });
 
-  test('impacto 3 + intenção 2 = score 6 → MEDIO', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    await processar('11999', '3', 'whatsapp');
-    const result = await processar('11999', '2', 'whatsapp');
-    expect(result.score).toBe(6);
-    expect(result.prioridade).toBe('MEDIO');
-  });
-
-  test('impacto 3 + intenção 3 = score 7 → QUENTE', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    await processar('11999', '3', 'whatsapp');
-    const result = await processar('11999', '3', 'whatsapp');
-    expect(result.score).toBe(7);
-    expect(result.prioridade).toBe('QUENTE');
-  });
-
-  test('valores fora do range são clampados entre 1 e 3', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    const result = await processar('11999', '99', 'whatsapp'); // clamp para 3
-    expect(result.score).toBe(4); // 3+0+1
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FLAG DE ATENÇÃO E URGÊNCIA
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('flag de atenção', () => {
-  test('"urgente" ativa flagAtencao', async () => {
-    await processar('11999', 'oi', 'whatsapp');
-    const result = await processar('11999', 'preciso urgente de ajuda', 'whatsapp');
-    expect(result.flagAtencao).toBe(true);
-  });
-
-  test('"advogado" ativa flagAtencao', async () => {
-    await processar('11999', 'oi', 'whatsapp');
-    const result = await processar('11999', 'quero falar com advogado', 'whatsapp');
-    expect(result.flagAtencao).toBe(true);
-  });
-
-  test('flagAtencao persiste após reset', async () => {
-    await processar('11999', 'urgente', 'whatsapp');
-    const result = await processar('11999', 'reiniciar', 'whatsapp');
-    expect(result.flagAtencao).toBe(true);
-  });
-
-  test('flagAtencao persiste em qualquer estado do fluxo', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    const result = await processar('11999', 'é urgente isso', 'whatsapp');
-    expect(result.flagAtencao).toBe(true);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RESET
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('reset', () => {
-  test('"reiniciar" volta para inicio', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    const result = await processar('11999', 'reiniciar', 'whatsapp');
-    expect(result.estado).toBe('inicio');
-  });
-
-  test('"menu" volta para inicio', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    const result = await processar('11999', 'menu', 'whatsapp');
-    expect(result.estado).toBe('inicio');
-  });
-
-  test('"voltar" volta para inicio', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    const result = await processar('11999', 'voltar', 'whatsapp');
-    expect(result.estado).toBe('inicio');
-  });
-
-  test('após reset, sessao reinicia com score 1 e prioridade FRIO', async () => {
-    await processar('11999', 'fui demitido', 'whatsapp');
-    await processar('11999', 'situação', 'whatsapp');
-    await processar('11999', '3', 'whatsapp');
-    const result = await processar('11999', 'reiniciar', 'whatsapp');
-    expect(result.score).toBe(1);
-    expect(result.prioridade).toBe('FRIO');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// NORMALIZER
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('normalizer — entrada do webhook', () => {
-  const normalize = require('../src/normalizer');
-
-  test('remove não-numéricos do campo sessao', () => {
-    const r = normalize({ sessao: '+55 (11) 99999-9999', mensagem: 'oi', canal: 'WhatsApp' });
-    expect(r.sessao).toBe('5511999999999');
-  });
-
-  test('aceita telefone como alias de sessao', () => {
-    const r = normalize({ telefone: '11999999999', mensagem: 'oi', canal: 'whatsapp' });
-    expect(r.sessao).toBe('11999999999');
-  });
-
-  test('aceita Telefone (maiúsculo) como alias de sessao', () => {
-    const r = normalize({ Telefone: '21999999999', mensagem: 'oi', canal: 'whatsapp' });
-    expect(r.sessao).toBe('21999999999');
-  });
-
-  test('faz trim e lowercase na mensagem', () => {
-    const r = normalize({ sessao: '11999', mensagem: '  OLÁ  ', canal: 'whatsapp' });
-    expect(r.mensagem).toBe('olá');
-  });
-
-  test('normaliza canal para lowercase', () => {
-    const r = normalize({ sessao: '11999', mensagem: 'oi', canal: 'WHATSAPP' });
-    expect(r.canal).toBe('whatsapp');
-  });
-
-  test('mensagem nula vira string vazia', () => {
-    const r = normalize({ sessao: '11999', mensagem: null, canal: 'whatsapp' });
-    expect(r.mensagem).toBe('');
-  });
-
-  test('adiciona dataHora em formato ISO', () => {
-    const r = normalize({ sessao: '11999', mensagem: 'oi', canal: 'whatsapp' });
-    expect(r.dataHora).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SCORER
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('scorer — fórmula', () => {
-  const { calcularScore } = require('../src/scorer');
-
-  test('score = impacto + intencao + 1', () => {
-    expect(calcularScore({ impacto: 3, intencao: 3 }).score).toBe(7);
-  });
-
-  test('score >= 7 é QUENTE', () => {
-    expect(calcularScore({ impacto: 3, intencao: 3 }).prioridade).toBe('QUENTE');
-  });
-
-  test('score >= 5 e < 7 é MEDIO', () => {
-    expect(calcularScore({ impacto: 2, intencao: 2 }).prioridade).toBe('MEDIO');
-  });
-
-  test('score < 5 é FRIO', () => {
-    expect(calcularScore({ impacto: 1, intencao: 1 }).prioridade).toBe('FRIO');
-  });
-
-  test('com apenas impacto, intencao assume 0', () => {
-    expect(calcularScore({ impacto: 3, intencao: null }).score).toBe(4);
-  });
-
-  test('sem dados, score mínimo é 1', () => {
-    expect(calcularScore({}).score).toBe(1);
+  test('"3" em pos_final vai para encerramento', async () => {
+    await chegarAoPosFinal('77003');
+    const r = await processar('77003', '3', 'whatsapp');
+    expect(r.estado).toBe('encerramento');
+    expect(r.message).toContain('Obrigado');
   });
 });

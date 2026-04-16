@@ -1,84 +1,71 @@
 // src/stateMachine.js
 const sessionManager = require('./sessionManager');
-const { calcularScore } = require('./scorer');
 const storage = require('./storage');
 const { randomUUID } = require('crypto');
 
 const RESET_KEYWORDS = ['menu', 'reiniciar', 'voltar'];
-const URGENT_KEYWORDS = ['urgente', 'advogado', 'falar com alguém', 'falar com alguem'];
 
 // ─── Perguntas por estado ──────────────────────────────────────────────────
 const PERGUNTAS = {
-  inicio: `Olá! Aqui é do Santos & Bastos Advogados 👋\n\nVou te ajudar a entender seu caso rapidinho.\n\nMe conta em uma frase o que aconteceu:\n(ex: fui demitido, quero me divorciar, tenho uma dívida...)`,
-  inicio_menu: `Entendi 👍\n\nPra te direcionar melhor, me diz qual dessas opções chega mais perto:\n\n1 - Problema no trabalho\n2 - Questão de família\n3 - Já sou cliente\n4 - Outro assunto`,
-  inicio_detalhe: `Pode me explicar um pouco melhor o que está acontecendo?\n(ex: fui demitido, quero me divorciar, tenho uma dívida...)`,
-  inicio_advogado: `Claro 👍\n\nVocê já é cliente do escritório ou é um caso novo?\n\n1 - Já sou cliente\n2 - É um caso novo`,
 
-  cliente_nome: 'Qual é o seu nome completo?',
-  cliente_canal_contato: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
-  cliente_mensagem: 'Descreva brevemente sua solicitação:',
-  cliente_finalizado: null,
+  start: `Olá! 👋 Bem-vindo ao Santos & Bastos Advogados.\n\nComo podemos te ajudar hoje?\n\n1️⃣ Problema no trabalho\n2️⃣ Questão de família\n3️⃣ Já sou cliente\n4️⃣ Falar com advogado\n5️⃣ Outro tipo de problema`,
 
-  trabalhista_situacao: 'Descreva brevemente sua situação trabalhista:',
-  trabalhista_impacto: 'Qual o impacto financeiro estimado?\n1 - Baixo\n2 - Médio\n3 - Alto',
-  trabalhista_intencao: 'Qual sua intenção?\n1 - Buscar acordo\n2 - Entrar na Justiça\n3 - Ainda não sei',
-  trabalhista_nome: 'Qual é o seu nome completo?',
-  trabalhista_canal_contato: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
-  trabalhista_descricao: 'Descreva mais detalhes do seu caso:',
-  trabalhista_finalizado: null,
+  fallback: `Não entendi muito bem 😅\n\nEscolha uma opção:\n\n1️⃣ Trabalho\n2️⃣ Família\n3️⃣ Já sou cliente\n4️⃣ Falar com advogado\n5️⃣ Outro`,
 
-  familia_situacao: 'Descreva brevemente sua situação familiar:',
-  familia_impacto: 'Qual o impacto estimado?\n1 - Baixo\n2 - Médio\n3 - Alto',
-  familia_intencao: 'Qual sua intenção?\n1 - Buscar acordo\n2 - Processo judicial\n3 - Ainda não sei',
-  familia_nome: 'Qual é o seu nome completo?',
-  familia_canal_contato: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
-  familia_descricao: 'Descreva mais detalhes do seu caso:',
-  familia_finalizado: null,
+  // ── TRABALHISTA ──
+  trabalho_status: `Entendi 👍\n\nVocê ainda está trabalhando ou já saiu da empresa?\n\n1️⃣ Ainda estou trabalhando\n2️⃣ Já saí / fui demitido`,
+  trabalho_tipo: `Entendi 👍\n\nQual dessas situações mais se aproxima do seu caso?\n\n1️⃣ Demissão / rescisão\n2️⃣ Horas extras ou salário atrasado\n3️⃣ Assédio ou problema no trabalho\n4️⃣ Mais de uma dessas\n5️⃣ Outro`,
+  trabalho_tempo: `Entendi 👍\n\nVocê trabalhou na empresa por quanto tempo?\n\n1️⃣ Menos de 1 ano\n2️⃣ Entre 1 e 3 anos\n3️⃣ Mais de 3 anos`,
+  trabalho_salario: `Perfeito 👍\n\nQual era sua faixa salarial?\n\n1️⃣ Até R$ 2.000\n2️⃣ Entre R$ 2.000 e R$ 5.000\n3️⃣ Acima de R$ 5.000`,
+  trabalho_contrato: `Entendi 👍\n\nSeu contrato era:\n\n1️⃣ CLT\n2️⃣ PJ\n3️⃣ Sem registro`,
+  trabalho_intencao: `Entendi 👍\n\nO que você pretende fazer?\n\n1️⃣ Resolver sem processo\n2️⃣ Entrar na Justiça\n3️⃣ Ainda estou avaliando`,
 
-  outro_tipo: 'Qual tipo de assunto você precisa tratar?',
-  outro_impacto: 'Qual o nível de urgência?\n1 - Baixo\n2 - Médio\n3 - Alto',
-  outro_intencao: 'Qual sua intenção?\n1 - Informação\n2 - Contratar serviço\n3 - Reclamação',
-  outro_nome: 'Qual é o seu nome completo?',
-  outro_canal_contato: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
-  outro_descricao: 'Descreva sua solicitação:',
-  outro_finalizado: null,
+  // ── FAMÍLIA ──
+  familia_tipo: `Entendi 👍\n\nSobre qual situação você precisa de ajuda?\n\n1️⃣ Divórcio\n2️⃣ Pensão\n3️⃣ Guarda\n4️⃣ Outro`,
+  familia_status: `Entendi 👍\n\nEssa situação já está acontecendo ou você quer se organizar?\n\n1️⃣ Já está acontecendo\n2️⃣ Quero me organizar`,
+  familia_urgencia: `Entendi 👍\n\nIsso precisa ser resolvido com urgência?\n\n1️⃣ Sim\n2️⃣ Não`,
 
-  quente_humano: `⚠️ Pelo que você descreveu, seu caso pode precisar de atenção rápida.\n\nPrefere falar diretamente com um advogado agora?\n\n1 - Sim, quero falar com alguém\n2 - Não, continuar aqui`,
+  // ── CLIENTE ──
+  cliente_identificacao: `Perfeito 👍 vou te ajudar com seu atendimento.\n\nPode me informar seu nome completo ou número do processo?`,
+
+  // ── ADVOGADO ──
+  advogado_tipo: `Entendi 👍\n\nÉ sobre um caso novo ou você já é cliente?\n\n1️⃣ Caso novo\n2️⃣ Já sou cliente`,
+  advogado_descricao: `Perfeito 👍\n\nMe conta rapidamente o que aconteceu:`,
+
+  // ── OUTROS ──
+  outros_descricao: `Entendi 👍\n\nPode me explicar rapidamente do que se trata?`,
+  outros_impacto: `Entendi 👍\n\nIsso está te causando algum prejuízo maior?\n\n1️⃣ Sim\n2️⃣ Não`,
+
+  // ── COLETA ──
+  coleta_nome: `Perfeito 👍\n\nPra encaminhar seu atendimento, qual é o seu nome completo?`,
+  contato_confirmacao: `Pra agilizar seu atendimento 👍\n\nPodemos falar com você por esse número?\n\n1️⃣ Sim, autorizo contato por aqui\n2️⃣ Prefiro outro número\n3️⃣ Prefiro ligação`,
+  contato_numero: `Perfeito 👍\n\nMe informa o número com DDD:`,
+  contato_canal: `Perfeito 👍\n\nPrefere contato por:\n\n1️⃣ WhatsApp\n2️⃣ Ligação`,
+
+  // ── PÓS-FINAL ──
+  pos_final: `Posso te ajudar com mais alguma coisa?\n\n1️⃣ Novo atendimento\n2️⃣ Falar com advogado\n3️⃣ Encerrar`,
+  encerramento: `Perfeito 👍\n\nObrigado pelo contato.\n\nNossa equipe já está com sua solicitação e deve falar com você em breve.\n\nFicamos à disposição! 👋`,
 };
 
-// ─── Classificação por texto livre ────────────────────────────────────────
-function classificarPorTexto(mensagem) {
-  if (/quero falar com advogado|falar com advogado|falar com o advogado|preciso de um advogado|quero um advogado/.test(mensagem)) return 'advogado';
-  if (/sou cliente|já cliente|ja cliente|tenho processo|meu processo/.test(mensagem)) return 'cliente';
-  if (/(demitido|me demitiram|fui demitido|mandaram embora|mandado embora|fui mandado embora|dispensado|fui dispensado|desligado|fui desligado|perdi o emprego|perdi meu emprego|direito trabalhista|causa trabalhista|salário atrasado|salario atrasado|rescisão|rescisao|fgts|aviso prévio|aviso previo|justa causa|horas extras|carteira assinada|assédio no trabalho|acidente de trabalho|férias não pagas|ferias nao pagas)/.test(mensagem)) return 'trabalhista';
-  if (/(guarda|pensão|pensao|alimentos|divórcio|divorcio|separação|separacao|família|familia|cônjuge|conjuge|filho|filha|casamento|inventário|inventario|herança|heranca|partilha)/.test(mensagem)) return 'familia';
-  return null;
-}
-
-// ─── Detectar urgência ────────────────────────────────────────────────────
-function temUrgencia(mensagem) {
-  return URGENT_KEYWORDS.some(k => mensagem.includes(k));
-}
-
-// ─── Recalcular score na sessão ────────────────────────────────────────────
-async function recalcularScore(sessao, dados) {
-  const { score, prioridade } = calcularScore({
-    impacto: dados.impacto,
-    intencao: dados.intencao,
-  });
-  const flagAtencao = dados.flagAtencao || prioridade === 'QUENTE';
-  await sessionManager.updateSession(sessao, { score, prioridade, flagAtencao });
-  return { score, prioridade, flagAtencao };
-}
-
 // ─── Mensagem de finalização ──────────────────────────────────────────────
-function mensagemFinalizacao(prioridade) {
-  if (prioridade === 'QUENTE') return 'Seu caso foi identificado como prioritário. Entraremos em contato o mais breve possível.';
-  if (prioridade === 'MEDIO') return 'Recebemos suas informações e iremos analisar seu caso.';
-  return 'Recebi suas informações 👍\n\nVamos analisar e te orientar sobre os próximos passos.';
+function mensagemFinalizacao(prioridade, fluxo) {
+  if (fluxo === 'cliente') {
+    return `Perfeito 👍 já estou encaminhando isso para a equipe responsável.\n\nA Dra. Raquel ou alguém do time deve falar com você em breve.\n\n📞 Até 24h úteis (normalmente antes)`;
+  }
+  if (prioridade === 'QUENTE') {
+    return `Entendi 👍 seu caso é prioridade.\n\nJá estou acionando um advogado da equipe para falar com você o mais rápido possível.\n\nFique atento ao telefone/WhatsApp 📞`;
+  }
+  return `Perfeito 👍 já entendi seu caso.\n\nEstou encaminhando para um advogado da equipe analisar.\n\n📞 Você deve receber um retorno em até 24h úteis.`;
 }
 
-// ─── Persistência por tipo de fluxo ───────────────────────────────────────
+// ─── Calcular prioridade pelo score ───────────────────────────────────────
+function calcularPrioridade(score) {
+  if (score >= 5) return 'QUENTE';
+  if (score >= 3) return 'MEDIO';
+  return 'FRIO';
+}
+
+// ─── Persistência ─────────────────────────────────────────────────────────
 async function persistirFluxo(sessao) {
   const s = await storage.getSession(sessao);
   if (!s) return;
@@ -93,55 +80,55 @@ async function persistirFluxo(sessao) {
     tentativa++;
     try {
       if (s.fluxo === 'cliente') {
-        const prioridadeCliente = s.flagAtencao ? 'QUENTE' : 'MEDIO';
-        await sessionManager.updateSession(s.sessao, { prioridade: prioridadeCliente });
         await storage.createClient({
           leadId,
-          nome: s.nome,
+          nome: s.clienteId || s.nome,
           telefone: s.sessao,
-          tipoSolicitacao: 'Atendimento cliente existente',
           canalOrigem: s.canalOrigem,
-          canalPreferido: s.canalPreferido,
-          conteudo: s.ultimaMensagem,
-          urgencia: prioridadeCliente,
+          conteudo: s.clienteId,
+          urgencia: s.flagAtencao ? 'QUENTE' : 'MEDIO',
           flagAtencao: s.flagAtencao,
           status: 'NOVO',
-          origem: 'whatsapp-bot',
         });
         return;
       }
 
-      if (s.fluxo === 'trabalhista' || s.fluxo === 'familia') {
-        await storage.createLead({
+      if (s.fluxo === 'outros') {
+        await storage.createOther({
           leadId,
           nome: s.nome,
-          telefone: s.sessao,
-          area: s.fluxo,
-          situacao: s.situacao,
-          impacto: s.impacto,
-          intencao: s.intencao,
-          score: s.score,
-          prioridade: s.prioridade,
-          flagAtencao: s.flagAtencao,
+          telefone: s.telefoneContato || s.sessao,
+          tipo: s.outrosDescricao,
           canalOrigem: s.canalOrigem,
-          canalPreferido: s.canalPreferido,
-          resumo: s.ultimaMensagem,
+          conteudo: s.outrosDescricao,
           status: 'NOVO',
-          origem: 'whatsapp-bot',
         });
         return;
       }
 
-      await storage.createOther({
+      // trabalhista, familia, advogado
+      await storage.createLead({
         leadId,
         nome: s.nome,
-        telefone: s.sessao,
-        tipo: s.situacao,
+        telefone: s.telefoneContato || s.sessao,
+        area: s.fluxo === 'advogado' ? 'trabalhista' : s.fluxo,
+        situacao: s.advogadoDescricao || s.trabalhoTipo || s.familiaTipo || '',
+        impacto: s.trabalhoSalario || s.familiaUrgencia || 1,
+        intencao: s.trabalhoIntencao || 1,
+        score: s.score || 0,
+        prioridade: s.prioridade || 'FRIO',
+        flagAtencao: s.flagAtencao,
         canalOrigem: s.canalOrigem,
         canalPreferido: s.canalPreferido,
-        conteudo: s.ultimaMensagem,
+        resumo: JSON.stringify({
+          status: s.trabalhoStatus,
+          tipo: s.trabalhoTipo || s.familiaTipo,
+          tempo: s.trabalhoTempo,
+          salario: s.trabalhoSalario,
+          contrato: s.trabalhoContrato,
+          intencao: s.trabalhoIntencao || s.familiaIntencao,
+        }),
         status: 'NOVO',
-        origem: 'whatsapp-bot',
       });
       return;
 
@@ -156,258 +143,192 @@ async function persistirFluxo(sessao) {
 
 // ─── Transições por estado ────────────────────────────────────────────────
 async function transitar(sessao, estado, mensagem) {
+
   switch (estado) {
 
-    // ── INICIO ──
-    case 'inicio': {
-      let fluxo = null;
-      if (mensagem === '1') fluxo = 'trabalhista';
-      else if (mensagem === '2') fluxo = 'familia';
-      else if (mensagem === '3') fluxo = 'cliente';
-      else if (mensagem === '4') fluxo = 'outros';
-      else fluxo = classificarPorTexto(mensagem);
-
-      if (fluxo === 'advogado') return { proximoEstado: 'inicio_advogado', salvar: {} };
-      if (!fluxo) return { proximoEstado: 'inicio_detalhe', salvar: {} };
-
-      const mapaEstado = {
-        cliente: 'cliente_nome',
-        trabalhista: 'trabalhista_situacao',
-        familia: 'familia_situacao',
-        outros: 'outro_tipo',
-      };
-      return { proximoEstado: mapaEstado[fluxo], salvar: { fluxo, area: fluxo } };
+    // ── START ──
+    case 'start': {
+      if (mensagem === '1') return { proximoEstado: 'trabalho_status', salvar: { fluxo: 'trabalhista', score: 0 } };
+      if (mensagem === '2') return { proximoEstado: 'familia_tipo',    salvar: { fluxo: 'familia',     score: 0 } };
+      if (mensagem === '3') return { proximoEstado: 'cliente_identificacao', salvar: { fluxo: 'cliente', score: 0 } };
+      if (mensagem === '4') return { proximoEstado: 'advogado_tipo',   salvar: { fluxo: 'advogado',    score: 5 } };
+      if (mensagem === '5') return { proximoEstado: 'outros_descricao',salvar: { fluxo: 'outros',      score: 0 } };
+      return { proximoEstado: 'fallback', salvar: {} };
     }
 
-    // ── INICIO ADVOGADO (quero falar com advogado) ──
-    case 'inicio_advogado': {
-      if (mensagem === '1') return { proximoEstado: 'cliente_nome', salvar: { fluxo: 'cliente', area: 'cliente' } };
-      return { proximoEstado: 'trabalhista_situacao', salvar: { fluxo: 'trabalhista', area: 'trabalhista' } };
+    // ── FALLBACK ──
+    case 'fallback': {
+      if (mensagem === '1') return { proximoEstado: 'trabalho_status', salvar: { fluxo: 'trabalhista', score: 0 } };
+      if (mensagem === '2') return { proximoEstado: 'familia_tipo',    salvar: { fluxo: 'familia',     score: 0 } };
+      if (mensagem === '3') return { proximoEstado: 'cliente_identificacao', salvar: { fluxo: 'cliente', score: 0 } };
+      if (mensagem === '4') return { proximoEstado: 'advogado_tipo',   salvar: { fluxo: 'advogado',    score: 5 } };
+      if (mensagem === '5') return { proximoEstado: 'outros_descricao',salvar: { fluxo: 'outros',      score: 0 } };
+      return { proximoEstado: 'start', salvar: {} };
     }
 
-    // ── INICIO DETALHE (fallback progressivo) ──
-    case 'inicio_detalhe': {
-      let fluxo = null;
-      if (mensagem === '1') fluxo = 'trabalhista';
-      else if (mensagem === '2') fluxo = 'familia';
-      else if (mensagem === '3') fluxo = 'cliente';
-      else if (mensagem === '4') fluxo = 'outros';
-      else fluxo = classificarPorTexto(mensagem);
+    // ── TRABALHISTA ──
+    case 'trabalho_status':
+      return { proximoEstado: 'trabalho_tipo', salvar: { trabalhoStatus: mensagem } };
 
-      if (fluxo === 'advogado') return { proximoEstado: 'inicio_advogado', salvar: {} };
-      if (!fluxo) return { proximoEstado: 'inicio_menu', salvar: {} };
-
-      const mapaEstado = {
-        cliente: 'cliente_nome',
-        trabalhista: 'trabalhista_situacao',
-        familia: 'familia_situacao',
-        outros: 'outro_tipo',
-      };
-      return { proximoEstado: mapaEstado[fluxo], salvar: { fluxo, area: fluxo } };
+    case 'trabalho_tipo': {
+      const bonus = mensagem === '4' ? 2 : 0;
+      const sess = await storage.getSession(sessao);
+      const score = (sess.score || 0) + bonus;
+      return { proximoEstado: 'trabalho_tempo', salvar: { trabalhoTipo: mensagem, score } };
     }
 
-    // ── INICIO MENU (último recurso) ──
-    case 'inicio_menu': {
-      let fluxo = null;
-      if (mensagem === '1') fluxo = 'trabalhista';
-      else if (mensagem === '2') fluxo = 'familia';
-      else if (mensagem === '3') fluxo = 'cliente';
-      else if (mensagem === '4') fluxo = 'outros';
-      else fluxo = classificarPorTexto(mensagem);
+    case 'trabalho_tempo':
+      return { proximoEstado: 'trabalho_salario', salvar: { trabalhoTempo: mensagem } };
 
-      if (fluxo === 'advogado') return { proximoEstado: 'inicio_advogado', salvar: {} };
-      if (!fluxo) return { proximoEstado: 'outro_tipo', salvar: { fluxo: 'outros', area: 'outros' } };
+    case 'trabalho_salario': {
+      const sess = await storage.getSession(sessao);
+      const bonus = mensagem === '3' ? 2 : mensagem === '2' ? 1 : 0;
+      const score = (sess.score || 0) + bonus;
+      return { proximoEstado: 'trabalho_contrato', salvar: { trabalhoSalario: mensagem, score } };
+    }
 
-      const mapaEstado = {
-        cliente: 'cliente_nome',
-        trabalhista: 'trabalhista_situacao',
-        familia: 'familia_situacao',
-        outros: 'outro_tipo',
-      };
-      return { proximoEstado: mapaEstado[fluxo], salvar: { fluxo, area: fluxo } };
+    case 'trabalho_contrato':
+      return { proximoEstado: 'trabalho_intencao', salvar: { trabalhoContrato: mensagem } };
+
+    case 'trabalho_intencao': {
+      const sess = await storage.getSession(sessao);
+      const bonus = mensagem === '2' ? 2 : 0;
+      const score = (sess.score || 0) + bonus;
+      const prioridade = calcularPrioridade(score);
+      return { proximoEstado: 'coleta_nome', salvar: { trabalhoIntencao: mensagem, score, prioridade } };
+    }
+
+    // ── FAMÍLIA ──
+    case 'familia_tipo':
+      return { proximoEstado: 'familia_status', salvar: { familiaTipo: mensagem } };
+
+    case 'familia_status':
+      return { proximoEstado: 'familia_urgencia', salvar: { familiaStatus: mensagem } };
+
+    case 'familia_urgencia': {
+      const sess = await storage.getSession(sessao);
+      const bonus = mensagem === '1' ? 5 : 0;
+      const score = (sess.score || 0) + bonus;
+      const prioridade = calcularPrioridade(score);
+      return { proximoEstado: 'coleta_nome', salvar: { familiaUrgencia: mensagem, score, prioridade } };
     }
 
     // ── CLIENTE ──
-    case 'cliente_nome':
-      return { proximoEstado: 'cliente_canal_contato', salvar: { nome: mensagem } };
+    case 'cliente_identificacao':
+      return { proximoEstado: 'final_cliente', salvar: { clienteId: mensagem } };
 
-    case 'cliente_canal_contato':
-      return { proximoEstado: 'cliente_mensagem', salvar: { canalPreferido: mensagem } };
-
-    case 'cliente_mensagem':
-      return { proximoEstado: 'cliente_finalizado', salvar: { ultimaMensagem: mensagem } };
-
-    // ── TRABALHISTA ──
-    case 'trabalhista_situacao':
-      return { proximoEstado: 'trabalhista_impacto', salvar: { situacao: mensagem } };
-
-    case 'trabalhista_impacto': {
-      const impacto = Math.min(3, Math.max(1, parseInt(mensagem) || 1));
-      const sess = await storage.getSession(sessao);
-      const scoreData = await recalcularScore(sessao, { ...sess, impacto });
-      return { proximoEstado: 'trabalhista_intencao', salvar: { impacto, ...scoreData } };
+    // ── ADVOGADO ──
+    case 'advogado_tipo': {
+      if (mensagem === '2') return { proximoEstado: 'cliente_identificacao', salvar: { fluxo: 'cliente' } };
+      return { proximoEstado: 'advogado_descricao', salvar: {} };
     }
 
-    case 'trabalhista_intencao': {
-      const intencao = Math.min(3, Math.max(1, parseInt(mensagem) || 1));
+    case 'advogado_descricao': {
       const sess = await storage.getSession(sessao);
-      const scoreData = await recalcularScore(sessao, { ...sess, intencao });
-      const proximo = scoreData.prioridade === 'QUENTE' ? 'quente_humano' : 'trabalhista_nome';
-      return { proximoEstado: proximo, salvar: { intencao, ...scoreData } };
+      const prioridade = calcularPrioridade(sess.score || 0);
+      return { proximoEstado: 'coleta_nome', salvar: { advogadoDescricao: mensagem, prioridade } };
     }
-
-    case 'trabalhista_nome':
-      return { proximoEstado: 'trabalhista_canal_contato', salvar: { nome: mensagem } };
-
-    case 'trabalhista_canal_contato':
-      return { proximoEstado: 'trabalhista_descricao', salvar: { canalPreferido: mensagem } };
-
-    case 'trabalhista_descricao':
-      return { proximoEstado: 'trabalhista_finalizado', salvar: { ultimaMensagem: mensagem } };
-
-    // ── FAMÍLIA ──
-    case 'familia_situacao':
-      return { proximoEstado: 'familia_impacto', salvar: { situacao: mensagem } };
-
-    case 'familia_impacto': {
-      const impacto = Math.min(3, Math.max(1, parseInt(mensagem) || 1));
-      const sess = await storage.getSession(sessao);
-      const scoreData = await recalcularScore(sessao, { ...sess, impacto });
-      return { proximoEstado: 'familia_intencao', salvar: { impacto, ...scoreData } };
-    }
-
-    case 'familia_intencao': {
-      const intencao = Math.min(3, Math.max(1, parseInt(mensagem) || 1));
-      const sess = await storage.getSession(sessao);
-      const scoreData = await recalcularScore(sessao, { ...sess, intencao });
-      const proximo = scoreData.prioridade === 'QUENTE' ? 'quente_humano' : 'familia_nome';
-      return { proximoEstado: proximo, salvar: { intencao, ...scoreData } };
-    }
-
-    // ── QUENTE — oferta de humano ──
-    case 'quente_humano': {
-      const sess = await storage.getSession(sessao);
-      if (mensagem === '1') {
-        // Quer falar com humano: finaliza e persiste imediatamente
-        return { proximoEstado: `${sess.fluxo}_finalizado`, salvar: { querHumano: true } };
-      }
-      // Continua fluxo normal
-      const mapaRetorno = { trabalhista: 'trabalhista_nome', familia: 'familia_nome', outros: 'outro_nome' };
-      return { proximoEstado: mapaRetorno[sess.fluxo] || 'trabalhista_nome', salvar: {} };
-    }
-
-    case 'familia_nome':
-      return { proximoEstado: 'familia_canal_contato', salvar: { nome: mensagem } };
-
-    case 'familia_canal_contato':
-      return { proximoEstado: 'familia_descricao', salvar: { canalPreferido: mensagem } };
-
-    case 'familia_descricao':
-      return { proximoEstado: 'familia_finalizado', salvar: { ultimaMensagem: mensagem } };
 
     // ── OUTROS ──
-    case 'outro_tipo':
-      return { proximoEstado: 'outro_impacto', salvar: { situacao: mensagem } };
+    case 'outros_descricao':
+      return { proximoEstado: 'outros_impacto', salvar: { outrosDescricao: mensagem } };
 
-    case 'outro_impacto': {
-      const impacto = Math.min(3, Math.max(1, parseInt(mensagem) || 1));
+    case 'outros_impacto': {
       const sess = await storage.getSession(sessao);
-      const scoreData = await recalcularScore(sessao, { ...sess, impacto });
-      return { proximoEstado: 'outro_intencao', salvar: { impacto, ...scoreData } };
+      const bonus = mensagem === '1' ? 1 : 0;
+      const score = (sess.score || 0) + bonus;
+      const prioridade = calcularPrioridade(score);
+      return { proximoEstado: 'coleta_nome', salvar: { outrosImpacto: mensagem, score, prioridade } };
     }
 
-    case 'outro_intencao': {
-      const intencao = Math.min(3, Math.max(1, parseInt(mensagem) || 1));
-      const sess = await storage.getSession(sessao);
-      const scoreData = await recalcularScore(sessao, { ...sess, intencao });
-      return { proximoEstado: 'outro_nome', salvar: { intencao, ...scoreData } };
+    // ── COLETA DE NOME ──
+    case 'coleta_nome':
+      return { proximoEstado: 'contato_confirmacao', salvar: { nome: mensagem } };
+
+    // ── CONTATO ──
+    case 'contato_confirmacao': {
+      if (mensagem === '1') return { proximoEstado: 'final_lead', salvar: { canalPreferido: 'whatsapp', telefoneContato: sessao } };
+      if (mensagem === '2') return { proximoEstado: 'contato_numero', salvar: {} };
+      return { proximoEstado: 'final_lead', salvar: { canalPreferido: 'ligacao', telefoneContato: sessao } };
     }
 
-    case 'outro_nome':
-      return { proximoEstado: 'outro_canal_contato', salvar: { nome: mensagem } };
+    case 'contato_numero':
+      return { proximoEstado: 'contato_canal', salvar: { telefoneContato: mensagem } };
 
-    case 'outro_canal_contato':
-      return { proximoEstado: 'outro_descricao', salvar: { canalPreferido: mensagem } };
+    case 'contato_canal': {
+      const canal = mensagem === '1' ? 'whatsapp' : 'ligacao';
+      return { proximoEstado: 'final_lead', salvar: { canalPreferido: canal } };
+    }
 
-    case 'outro_descricao':
-      return { proximoEstado: 'outro_finalizado', salvar: { ultimaMensagem: mensagem } };
+    // ── PÓS-FINAL ──
+    case 'pos_final': {
+      if (mensagem === '1') return { proximoEstado: 'start', salvar: { fluxo: null, score: 0, nome: null } };
+      if (mensagem === '2') return { proximoEstado: 'advogado_tipo', salvar: { fluxo: 'advogado', score: 3 } };
+      return { proximoEstado: 'encerramento', salvar: {} };
+    }
 
     default:
-      return { proximoEstado: estado, salvar: {} };
+      return { proximoEstado: 'start', salvar: {} };
   }
 }
 
 // ─── Ponto de entrada principal ───────────────────────────────────────────
 async function process(sessao, mensagem, canal) {
-  // 1. Carregar sessão
   let sessaoObj = await sessionManager.getSession(sessao, canal);
 
-  // 2. Detectar urgência em qualquer momento
-  const urgente = temUrgencia(mensagem);
-  if (urgente && !sessaoObj.flagAtencao) {
-    await sessionManager.updateSession(sessao, { flagAtencao: true });
-    sessaoObj = { ...sessaoObj, flagAtencao: true };
-  }
-
-  // 3. Palavras de reinício
+  // Palavras de reinício
   if (RESET_KEYWORDS.includes(mensagem)) {
     sessaoObj = await sessionManager.resetSession(sessao, canal);
-    return {
-      message: PERGUNTAS.inicio,
-      estado: 'inicio',
-      fluxo: null,
-      sessao,
-      score: 1,
-      prioridade: 'FRIO',
-      flagAtencao: sessaoObj.flagAtencao,
-    };
+    return buildResposta(sessaoObj, PERGUNTAS.start, 'start');
   }
 
-  // 4. Primeira mensagem sem conteúdo: mostrar abertura
-  if (sessaoObj.estadoAtual === 'inicio' && !mensagem) {
-    return buildResposta(sessaoObj, PERGUNTAS.inicio);
+  // Primeira mensagem (qualquer conteúdo) — mostrar abertura
+  if (sessaoObj.estadoAtual === 'start' && !sessaoObj.ultimaMensagem) {
+    await sessionManager.updateSession(sessao, { ultimaMensagem: mensagem });
+    return buildResposta(sessaoObj, PERGUNTAS.start, 'start');
   }
 
-  // 5. Salvar última mensagem
+  // Salvar última mensagem
   await sessionManager.updateSession(sessao, { ultimaMensagem: mensagem });
 
-  // 6. Processar transição
+  // Processar transição
   const { proximoEstado, salvar } = await transitar(sessao, sessaoObj.estadoAtual, mensagem);
   await sessionManager.updateSession(sessao, { ...salvar, estadoAtual: proximoEstado });
 
-  // 7. Recarregar sessão atualizada
+  // Recarregar sessão
   const sessaoAtualizada = await storage.getSession(sessao);
 
-  // 8. Finalização
-  const finalStates = ['cliente_finalizado', 'trabalhista_finalizado', 'familia_finalizado', 'outro_finalizado'];
-  if (finalStates.includes(proximoEstado)) {
+  // Estados de finalização
+  if (proximoEstado === 'final_lead') {
     await persistirFluxo(sessao);
     const sessaoFinal = await storage.getSession(sessao);
-    const msg = mensagemFinalizacao(sessaoFinal.prioridade);
-    await sessionManager.updateSession(sessao, { ultimaPergunta: msg });
-    return buildResposta(sessaoFinal, msg);
+    const msg = mensagemFinalizacao(sessaoFinal.prioridade, sessaoFinal.fluxo);
+    await sessionManager.updateSession(sessao, { estadoAtual: 'pos_final', ultimaPergunta: msg });
+    return buildResposta(sessaoFinal, msg + '\n\n' + PERGUNTAS.pos_final, 'pos_final');
   }
 
-  // 9. Próxima pergunta
-  // Quando a transição é de 'inicio' para 'inicio_detalhe', retornar a abertura com a pergunta embutida
-  let pergunta;
-  if (sessaoObj.estadoAtual === 'inicio' && proximoEstado === 'inicio_detalhe') {
-    pergunta = PERGUNTAS.inicio;
-  } else {
-    pergunta = PERGUNTAS[proximoEstado] || PERGUNTAS.inicio;
+  if (proximoEstado === 'final_cliente') {
+    await persistirFluxo(sessao);
+    const sessaoFinal = await storage.getSession(sessao);
+    const msg = mensagemFinalizacao('MEDIO', 'cliente');
+    await sessionManager.updateSession(sessao, { estadoAtual: 'pos_final', ultimaPergunta: msg });
+    return buildResposta(sessaoFinal, msg + '\n\n' + PERGUNTAS.pos_final, 'pos_final');
   }
+
+  // Próxima pergunta
+  const pergunta = PERGUNTAS[proximoEstado] || PERGUNTAS.start;
   await sessionManager.updateSession(sessao, { ultimaPergunta: pergunta });
-  return buildResposta(sessaoAtualizada, pergunta);
+  return buildResposta(sessaoAtualizada, pergunta, proximoEstado);
 }
 
-function buildResposta(sessao, message) {
+function buildResposta(sessao, message, estado) {
   return {
     message,
-    estado: sessao.estadoAtual,
+    estado: estado || sessao.estadoAtual,
     fluxo: sessao.fluxo,
     sessao: sessao.sessao,
-    score: sessao.score,
-    prioridade: sessao.prioridade,
+    score: sessao.score || 0,
+    prioridade: sessao.prioridade || 'FRIO',
     flagAtencao: sessao.flagAtencao || false,
   };
 }

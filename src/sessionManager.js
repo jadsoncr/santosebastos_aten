@@ -12,7 +12,7 @@ async function getSession(sessao, canalOrigem) {
 
   const nova = {
     sessao,
-    estadoAtual: 'inicio',
+    estadoAtual: 'start',
     fluxo: null,
     area: null,
     situacao: null,
@@ -23,7 +23,7 @@ async function getSession(sessao, canalOrigem) {
     canalPreferido: null,
     ultimaMensagem: null,
     ultimaPergunta: null,
-    score: 1,
+    score: 0,
     prioridade: 'FRIO',
     flagAtencao: false,
     atualizadoEm: new Date().toISOString(),
@@ -49,7 +49,7 @@ async function updateSession(sessao, data) {
 async function resetSession(sessao, canalOrigem) {
   const existing = await storage.getSession(sessao);
   await storage.updateSession(sessao, {
-    estadoAtual: 'inicio',
+    estadoAtual: 'start',
     fluxo: null,
     area: null,
     situacao: null,
