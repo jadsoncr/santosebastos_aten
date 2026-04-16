@@ -117,6 +117,19 @@ npm test        # 66 testes (Jest)
 
 ---
 
+## Como testar em 2 minutos
+
+1. Abra o bot no Telegram e envie: `fui demitido`
+2. Responda as perguntas sobre impacto e intenção
+3. Informe nome e canal de contato
+4. Descreva o caso brevemente
+5. Verifique a nova linha criada na aba **Leads** do Google Sheets
+
+Para testar fluxo de família: envie `quero me divorciar`
+Para testar cliente existente: envie `já sou cliente`
+
+---
+
 ## Riscos conhecidos
 
 | Risco | Impacto | Situação |
