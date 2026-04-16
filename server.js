@@ -127,6 +127,51 @@ app.post('/webhook', async (req, res) => {
 // Health check para Railway
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
+// ── Admin: visibilidade de sessões em produção ──────────────────────────────
+// Protegido por ADMIN_TOKEN (defina na Railway)
+function adminAuth(req, res, next) {
+  const token = process.env.ADMIN_TOKEN;
+  if (!token) return res.status(503).json({ error: 'ADMIN_TOKEN não configurado.' });
+  if (req.headers['x-admin-token'] !== token) return res.status(401).json({ error: 'Não autorizado.' });
+  next();
+}
+
+app.get('/admin/sessions', adminAuth, async (_req, res) => {
+  const storage = require('./src/storage/inMemory');
+  const { sessions } = storage._getAll();
+  const agora = Date.now();
+
+  const lista = Object.values(sessions).map(s => ({
+    sessao:           s.sessao,
+    estado:           s.estadoAtual,
+    fluxo:            s.fluxo || '—',
+    score:            s.score || 0,
+    prioridade:       s.prioridade || 'FRIO',
+    status:           s.statusSessao || 'ATIVO',
+    nome:             s.nome || '—',
+    canal:            s.canalOrigem || '—',
+    mensagens:        s.mensagensEnviadas || 0,
+    ultimaMensagem:   s.ultimaMensagem || '—',
+    inatividade_min:  s.atualizadoEm
+      ? Math.floor((agora - new Date(s.atualizadoEm).getTime()) / 60000)
+      : null,
+    atualizadoEm:     s.atualizadoEm || null,
+  }));
+
+  // ordena por mais recente
+  lista.sort((a, b) => new Date(b.atualizadoEm) - new Date(a.atualizadoEm));
+
+  const resumo = {
+    total:       lista.length,
+    ativos:      lista.filter(s => s.status === 'ATIVO').length,
+    finalizados: lista.filter(s => s.status === 'FINALIZADO').length,
+    abandonados: lista.filter(s => s.status === 'ABANDONOU').length,
+    quentes:     lista.filter(s => s.prioridade === 'QUENTE').length,
+  };
+
+  return res.json({ resumo, sessoes: lista });
+});
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
