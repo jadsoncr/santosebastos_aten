@@ -94,9 +94,9 @@ app.get('/test-sheets', async (_req, res) => {
       impacto: 2, intencao: 2, score: 5, prioridade: 'MEDIO',
       flagAtencao: false, canalOrigem: 'test', resumo: 'teste', status: 'NOVO',
     });
-    return res.json({ ok: true, leadId: id, client_email: credentials.client_email });
+    return res.json({ ok: true, leadId: id, client_email: credentials.client_email, sheet_id: process.env.GOOGLE_SHEETS_ID });
   } catch (err) {
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: err.message, sheet_id: process.env.GOOGLE_SHEETS_ID, sheet_id_length: process.env.GOOGLE_SHEETS_ID?.length });
   }
 });
 
