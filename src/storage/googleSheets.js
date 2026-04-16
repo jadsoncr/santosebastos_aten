@@ -97,6 +97,65 @@ async function createOther(data) {
   return leadId;
 }
 
+// Cabeçalho da aba Abandonos (colar na linha 1 da planilha):
+// data_hora | sessao_id | fluxo | ultimo_estado | score | prioridade | nome | canal_origem | mensagens_enviadas | classificacao
+const ABANDONOS_HEADER = [
+  'data_hora',
+  'sessao_id',
+  'fluxo',
+  'ultimo_estado',
+  'score',
+  'prioridade',
+  'nome',
+  'canal_origem',
+  'mensagens_enviadas',
+  'classificacao',
+];
+
+async function ensureAbandonosHeader() {
+  const auth = getAuth();
+  const sheets = google.sheets({ version: 'v4', auth });
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: 'Abandonos!A1',
+  });
+  const firstCell = res.data.values?.[0]?.[0];
+  if (!firstCell) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Abandonos!A1',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [ABANDONOS_HEADER] },
+    });
+  }
+}
+
+// classificacao: PRECOCE | MEDIO | VALIOSO
+function classificarAbandono(ultimoEstado) {
+  const finais = ['coleta_nome', 'contato_confirmacao', 'contato_numero', 'contato_canal'];
+  const iniciais = ['start', 'fallback'];
+  if (iniciais.includes(ultimoEstado)) return 'PRECOCE';
+  if (finais.includes(ultimoEstado)) return 'VALIOSO';
+  return 'MEDIO';
+}
+
+async function createAbandono(data) {
+  await ensureAbandonosHeader();
+  const row = [
+    new Date().toISOString(),
+    fmt(data.sessao),
+    fmt(data.fluxo),
+    fmt(data.ultimoEstado),
+    fmt(data.score),
+    fmt(data.prioridade),
+    fmt(data.nome),
+    fmt(data.canalOrigem),
+    fmt(data.mensagensEnviadas),
+    classificarAbandono(data.ultimoEstado),
+  ];
+  await appendRow('Abandonos', row);
+}
+
 async function getSession() {
   throw new Error('Google Sheets adapter não suporta getSession. Use STORAGE_ADAPTER=memory para sessões.');
 }
@@ -105,4 +164,4 @@ async function updateSession() {
   throw new Error('Google Sheets adapter não suporta updateSession. Use STORAGE_ADAPTER=memory para sessões.');
 }
 
-module.exports = { createLead, createClient, createOther, getSession, updateSession };
+module.exports = { createLead, createClient, createOther, createAbandono, getSession, updateSession };

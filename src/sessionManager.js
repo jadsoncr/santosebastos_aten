@@ -26,6 +26,8 @@ async function getSession(sessao, canalOrigem) {
     score: 0,
     prioridade: 'FRIO',
     flagAtencao: false,
+    statusSessao: 'ATIVO',
+    mensagensEnviadas: 0,
     atualizadoEm: new Date().toISOString(),
   };
 
