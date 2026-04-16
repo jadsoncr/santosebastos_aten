@@ -8,7 +8,9 @@ const URGENT_KEYWORDS = ['urgente', 'advogado', 'falar com alguém', 'falar com 
 
 // ─── Perguntas por estado ──────────────────────────────────────────────────
 const PERGUNTAS = {
-  inicio: `Olá. Posso direcionar seu atendimento.\n\nDigite:\n1 - Já sou cliente\n2 - Trabalhista\n3 - Família\n4 - Outro assunto`,
+  inicio: `Olá! Aqui é do Santos & Bastos Advogados 👋\n\nMe conta o que aconteceu 👇`,
+  inicio_menu: `Posso te ajudar melhor se você me disser:\n\n1 - Já sou cliente\n2 - Problema no trabalho\n3 - Questões de família\n4 - Outro assunto`,
+  inicio_detalhe: `Pode me explicar um pouco melhor o que está acontecendo? 👇`,
 
   cliente_nome: 'Qual é o seu nome completo?',
   cliente_canal_contato: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
@@ -37,13 +39,15 @@ const PERGUNTAS = {
   outro_canal_contato: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
   outro_descricao: 'Descreva sua solicitação:',
   outro_finalizado: null,
+
+  quente_humano: `⚠️ Pelo que você descreveu, seu caso pode precisar de atenção rápida.\n\nPrefere falar diretamente com um advogado agora?\n\n1 - Sim, quero falar com alguém\n2 - Não, continuar aqui`,
 };
 
 // ─── Classificação por texto livre ────────────────────────────────────────
 function classificarPorTexto(mensagem) {
-  if (/sou cliente|já cliente|ja cliente/.test(mensagem)) return 'cliente';
-  if (/demitido|empresa|trabalhista|emprego|salário|salario|rescisão|rescisao|fgts/.test(mensagem)) return 'trabalhista';
-  if (/guarda|pensão|pensao|divórcio|divorcio|família|familia|cônjuge|conjuge/.test(mensagem)) return 'familia';
+  if (/sou cliente|já cliente|ja cliente|tenho processo|meu processo|quero falar com advogado|falar com o advogado/.test(mensagem)) return 'cliente';
+  if (/(demitido|me demitiram|fui demitido|mandaram embora|mandado embora|fui mandado embora|dispensado|fui dispensado|desligado|fui desligado|perdi o emprego|perdi meu emprego|empresa|trabalhista|emprego|salário|salario|rescisão|rescisao|fgts|aviso prévio|aviso previo|justa causa|horas extras|carteira assinada)/.test(mensagem)) return 'trabalhista';
+  if (/(guarda|pensão|pensao|alimentos|divórcio|divorcio|separação|separacao|família|familia|cônjuge|conjuge|filho|filha|casamento|inventário|inventario|herança|heranca|partilha)/.test(mensagem)) return 'familia';
   return null;
 }
 
@@ -134,7 +138,46 @@ async function transitar(sessao, estado, mensagem) {
       else if (mensagem === '4') fluxo = 'outros';
       else fluxo = classificarPorTexto(mensagem);
 
-      if (!fluxo) return { proximoEstado: 'inicio', salvar: {} };
+      if (!fluxo) return { proximoEstado: 'inicio_detalhe', salvar: {} };
+
+      const mapaEstado = {
+        cliente: 'cliente_nome',
+        trabalhista: 'trabalhista_situacao',
+        familia: 'familia_situacao',
+        outros: 'outro_tipo',
+      };
+      return { proximoEstado: mapaEstado[fluxo], salvar: { fluxo, area: fluxo } };
+    }
+
+    // ── INICIO DETALHE (fallback progressivo) ──
+    case 'inicio_detalhe': {
+      let fluxo = null;
+      if (mensagem === '1') fluxo = 'cliente';
+      else if (mensagem === '2') fluxo = 'trabalhista';
+      else if (mensagem === '3') fluxo = 'familia';
+      else if (mensagem === '4') fluxo = 'outros';
+      else fluxo = classificarPorTexto(mensagem);
+      if (!fluxo) return { proximoEstado: 'inicio_menu', salvar: {} };
+
+      const mapaEstado = {
+        cliente: 'cliente_nome',
+        trabalhista: 'trabalhista_situacao',
+        familia: 'familia_situacao',
+        outros: 'outro_tipo',
+      };
+      return { proximoEstado: mapaEstado[fluxo], salvar: { fluxo, area: fluxo } };
+    }
+
+    // ── INICIO MENU (último recurso) ──
+    case 'inicio_menu': {
+      let fluxo = null;
+      if (mensagem === '1') fluxo = 'cliente';
+      else if (mensagem === '2') fluxo = 'trabalhista';
+      else if (mensagem === '3') fluxo = 'familia';
+      else if (mensagem === '4') fluxo = 'outros';
+      else fluxo = classificarPorTexto(mensagem);
+
+      if (!fluxo) return { proximoEstado: 'outro_tipo', salvar: { fluxo: 'outros', area: 'outros' } };
 
       const mapaEstado = {
         cliente: 'cliente_nome',
@@ -170,7 +213,8 @@ async function transitar(sessao, estado, mensagem) {
       const intencao = Math.min(3, Math.max(1, parseInt(mensagem) || 1));
       const sess = await storage.getSession(sessao);
       const scoreData = await recalcularScore(sessao, { ...sess, intencao });
-      return { proximoEstado: 'trabalhista_nome', salvar: { intencao, ...scoreData } };
+      const proximo = scoreData.prioridade === 'QUENTE' ? 'quente_humano' : 'trabalhista_nome';
+      return { proximoEstado: proximo, salvar: { intencao, ...scoreData } };
     }
 
     case 'trabalhista_nome':
@@ -197,7 +241,20 @@ async function transitar(sessao, estado, mensagem) {
       const intencao = Math.min(3, Math.max(1, parseInt(mensagem) || 1));
       const sess = await storage.getSession(sessao);
       const scoreData = await recalcularScore(sessao, { ...sess, intencao });
-      return { proximoEstado: 'familia_nome', salvar: { intencao, ...scoreData } };
+      const proximo = scoreData.prioridade === 'QUENTE' ? 'quente_humano' : 'familia_nome';
+      return { proximoEstado: proximo, salvar: { intencao, ...scoreData } };
+    }
+
+    // ── QUENTE — oferta de humano ──
+    case 'quente_humano': {
+      const sess = await storage.getSession(sessao);
+      if (mensagem === '1') {
+        // Quer falar com humano: finaliza e persiste imediatamente
+        return { proximoEstado: `${sess.fluxo}_finalizado`, salvar: { querHumano: true } };
+      }
+      // Continua fluxo normal
+      const mapaRetorno = { trabalhista: 'trabalhista_nome', familia: 'familia_nome', outros: 'outro_nome' };
+      return { proximoEstado: mapaRetorno[sess.fluxo] || 'trabalhista_nome', salvar: {} };
     }
 
     case 'familia_nome':
@@ -260,7 +317,7 @@ async function process(sessao, mensagem, canal) {
     };
   }
 
-  // 4. Estado inicio sem mensagem relevante: mostrar menu
+  // 4. Primeira mensagem sem conteúdo: mostrar abertura
   if (sessaoObj.estadoAtual === 'inicio' && !mensagem) {
     return buildResposta(sessaoObj, PERGUNTAS.inicio);
   }
@@ -285,7 +342,13 @@ async function process(sessao, mensagem, canal) {
   }
 
   // 9. Próxima pergunta
-  const pergunta = PERGUNTAS[proximoEstado] || PERGUNTAS.inicio;
+  // Quando a transição é de 'inicio' para 'inicio_detalhe', retornar a abertura com a pergunta embutida
+  let pergunta;
+  if (sessaoObj.estadoAtual === 'inicio' && proximoEstado === 'inicio_detalhe') {
+    pergunta = PERGUNTAS.inicio;
+  } else {
+    pergunta = PERGUNTAS[proximoEstado] || PERGUNTAS.inicio;
+  }
   await sessionManager.updateSession(sessao, { ultimaPergunta: pergunta });
   return buildResposta(sessaoAtualizada, pergunta);
 }
