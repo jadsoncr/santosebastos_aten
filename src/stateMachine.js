@@ -48,7 +48,7 @@ const PERGUNTAS = {
 // ─── Classificação por texto livre ────────────────────────────────────────
 function classificarPorTexto(mensagem) {
   if (/sou cliente|já cliente|ja cliente|tenho processo|meu processo|quero falar com advogado|falar com o advogado/.test(mensagem)) return 'cliente';
-  if (/(demitido|me demitiram|fui demitido|mandaram embora|mandado embora|fui mandado embora|dispensado|fui dispensado|desligado|fui desligado|perdi o emprego|perdi meu emprego|empresa|trabalhista|emprego|salário|salario|rescisão|rescisao|fgts|aviso prévio|aviso previo|justa causa|horas extras|carteira assinada)/.test(mensagem)) return 'trabalhista';
+  if (/(demitido|me demitiram|fui demitido|mandaram embora|mandado embora|fui mandado embora|dispensado|fui dispensado|desligado|fui desligado|perdi o emprego|perdi meu emprego|direito trabalhista|causa trabalhista|salário atrasado|salario atrasado|rescisão|rescisao|fgts|aviso prévio|aviso previo|justa causa|horas extras|carteira assinada|assédio no trabalho|acidente de trabalho|férias não pagas|ferias nao pagas)/.test(mensagem)) return 'trabalhista';
   if (/(guarda|pensão|pensao|alimentos|divórcio|divorcio|separação|separacao|família|familia|cônjuge|conjuge|filho|filha|casamento|inventário|inventario|herança|heranca|partilha)/.test(mensagem)) return 'familia';
   return null;
 }
