@@ -9,9 +9,9 @@ const URGENT_KEYWORDS = ['urgente', 'advogado', 'falar com alguém', 'falar com 
 
 // ─── Perguntas por estado ──────────────────────────────────────────────────
 const PERGUNTAS = {
-  inicio: `Olá! Aqui é do Santos & Bastos Advogados 👋\n\nVou te ajudar a entender seu caso rapidinho.\n\nMe conta em uma frase o que aconteceu:\n_(ex: fui demitido, quero me divorciar, tenho uma dívida...)_`,
+  inicio: `Olá! Aqui é do Santos & Bastos Advogados 👋\n\nVou te ajudar a entender seu caso rapidinho.\n\nMe conta em uma frase o que aconteceu:\n(ex: fui demitido, quero me divorciar, tenho uma dívida...)`,
   inicio_menu: `Entendi 👍\n\nPra te direcionar melhor, me diz qual dessas opções chega mais perto:\n\n1 - Problema no trabalho\n2 - Questão de família\n3 - Já sou cliente\n4 - Outro assunto`,
-  inicio_detalhe: `Pode me explicar um pouco melhor o que está acontecendo?\n_(ex: fui demitido, quero me divorciar, tenho uma dívida...)_`,
+  inicio_detalhe: `Pode me explicar um pouco melhor o que está acontecendo?\n(ex: fui demitido, quero me divorciar, tenho uma dívida...)`,
   inicio_advogado: `Claro 👍\n\nVocê já é cliente do escritório ou é um caso novo?\n\n1 - Já sou cliente\n2 - É um caso novo`,
 
   cliente_nome: 'Qual é o seu nome completo?',

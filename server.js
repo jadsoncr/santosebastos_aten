@@ -73,6 +73,24 @@ app.get('/debug-env', (_req, res) => res.json({
   TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN ? 'OK' : 'NÃO DEFINIDO',
 }));
 
+// Teste direto de persistência no Sheets (remover após confirmar)
+app.get('/test-sheets', async (_req, res) => {
+  try {
+    const { createLead } = require('./src/storage/googleSheets');
+    const id = await createLead({
+      nome: 'Teste Railway',
+      telefone: '00000000000',
+      area: 'trabalhista',
+      situacao: 'Teste direto via endpoint',
+      impacto: 2, intencao: 2, score: 5, prioridade: 'MEDIO',
+      flagAtencao: false, canalOrigem: 'test', resumo: 'teste', status: 'NOVO',
+    });
+    return res.json({ ok: true, leadId: id });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
