@@ -76,6 +76,15 @@ app.get('/debug-env', (_req, res) => res.json({
 // Teste direto de persistência no Sheets (remover após confirmar)
 app.get('/test-sheets', async (_req, res) => {
   try {
+    // Verificar se o JSON da service account é válido
+    const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    let credentials;
+    try {
+      credentials = JSON.parse(raw);
+    } catch(e) {
+      return res.status(500).json({ ok: false, error: 'JSON inválido: ' + e.message, raw_length: raw?.length });
+    }
+
     const { createLead } = require('./src/storage/googleSheets');
     const id = await createLead({
       nome: 'Teste Railway',
@@ -85,7 +94,7 @@ app.get('/test-sheets', async (_req, res) => {
       impacto: 2, intencao: 2, score: 5, prioridade: 'MEDIO',
       flagAtencao: false, canalOrigem: 'test', resumo: 'teste', status: 'NOVO',
     });
-    return res.json({ ok: true, leadId: id });
+    return res.json({ ok: true, leadId: id, client_email: credentials.client_email });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
   }
