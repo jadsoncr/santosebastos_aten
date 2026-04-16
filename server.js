@@ -65,6 +65,14 @@ app.post('/webhook', async (req, res) => {
 // Health check para Railway
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
+// Diagnóstico de variáveis (remover após confirmar)
+app.get('/debug-env', (_req, res) => res.json({
+  STORAGE_ADAPTER: process.env.STORAGE_ADAPTER || 'NÃO DEFINIDO',
+  GOOGLE_SHEETS_ID: process.env.GOOGLE_SHEETS_ID ? 'OK' : 'NÃO DEFINIDO',
+  GOOGLE_SERVICE_ACCOUNT_JSON: process.env.GOOGLE_SERVICE_ACCOUNT_JSON ? 'OK' : 'NÃO DEFINIDO',
+  TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN ? 'OK' : 'NÃO DEFINIDO',
+}));
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
