@@ -1,17 +1,25 @@
 # Santos & Bastos — Motor de Atendimento Jurídico
 
-Backend conversacional para triagem e qualificação de leads jurídicos via Telegram (e futuramente WhatsApp), com persistência no Google Sheets.
+Sistema que recebe mensagens de clientes via Telegram, classifica automaticamente o tipo de caso jurídico, prioriza o lead (FRIO / MEDIO / QUENTE) e registra no Google Sheets quando o atendimento é concluído.
 
 ---
 
-## O que é este sistema
+## Problema que resolve
 
-Não é um chatbot simples. É um **motor de decisão conversacional** com:
+- Evita perda de leads por demora ou falta de triagem
+- Padroniza o atendimento inicial sem depender de pessoa humana
+- Prioriza automaticamente os casos com maior urgência e valor
+- Entrega ao time de advogados apenas leads qualificados e organizados
 
-- Máquina de estados que guia o usuário por fluxos específicos
-- Score incremental que classifica leads por prioridade
-- Sessão por conversa mantida em memória
-- Persistência final em Google Sheets ao encerrar o atendimento
+---
+
+## Como funciona (visão rápida)
+
+```
+Entrada       →   Telegram
+Processamento →   Motor conversacional (estado + decisão + score)
+Saída         →   Registro estruturado no Google Sheets
+```
 
 ---
 
@@ -31,8 +39,6 @@ Usuário (Telegram)
   stateMachine.js     decide fluxo, avança estado, classifica intenção
         ↓
   scorer.js           calcula score = impacto + intenção + 1
-        ↓
-  storage/index.js
         ↓
   googleSheets.js     persiste lead na planilha ao finalizar
 ```
@@ -67,7 +73,7 @@ Usuário (Telegram)
 | Canal | Status |
 |---|---|
 | Telegram | Ativo |
-| WhatsApp (via n8n) | Previsto |
+| WhatsApp Oficial (API Cloud) | Previsto |
 
 ---
 
@@ -86,7 +92,7 @@ Usuário (Telegram)
 ## Endpoints
 
 ```
-POST /webhook   recebe mensagens (Telegram ou n8n/WhatsApp)
+POST /webhook   recebe mensagens (Telegram ou WhatsApp)
 GET  /health    healthcheck Railway
 ```
 
