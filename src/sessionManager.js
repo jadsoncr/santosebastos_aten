@@ -47,6 +47,7 @@ async function updateSession(sessao, data) {
  * Reseta sessão para o estado inicial.
  */
 async function resetSession(sessao, canalOrigem) {
+  const existing = await storage.getSession(sessao);
   await storage.updateSession(sessao, {
     estadoAtual: 'inicio',
     fluxo: null,
@@ -60,7 +61,7 @@ async function resetSession(sessao, canalOrigem) {
     ultimaPergunta: null,
     score: 1,
     prioridade: 'FRIO',
-    flagAtencao: false,
+    flagAtencao: existing ? existing.flagAtencao : false,
     atualizadoEm: new Date().toISOString(),
   });
   return getSession(sessao, canalOrigem);

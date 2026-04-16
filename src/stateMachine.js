@@ -347,9 +347,10 @@ async function process(sessao, mensagem, canal) {
   const finalStates = ['cliente_finalizado', 'trabalhista_finalizado', 'familia_finalizado', 'outro_finalizado'];
   if (finalStates.includes(proximoEstado)) {
     await persistirFluxo(sessao);
-    const msg = mensagemFinalizacao(sessaoAtualizada.prioridade);
+    const sessaoFinal = await storage.getSession(sessao);
+    const msg = mensagemFinalizacao(sessaoFinal.prioridade);
     await sessionManager.updateSession(sessao, { ultimaPergunta: msg });
-    return buildResposta(sessaoAtualizada, msg);
+    return buildResposta(sessaoFinal, msg);
   }
 
   // 9. Próxima pergunta
