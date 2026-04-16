@@ -34,6 +34,7 @@ const PERGUNTAS = {
   familia_finalizado: null,
 
   outro_tipo: 'Qual tipo de assunto você precisa tratar?',
+  outro_impacto: 'Qual o nível de urgência?\n1 - Baixo\n2 - Médio\n3 - Alto',
   outro_intencao: 'Qual sua intenção?\n1 - Informação\n2 - Contratar serviço\n3 - Reclamação',
   outro_nome: 'Qual é o seu nome completo?',
   outro_canal_contato: 'Como prefere ser contatado? (WhatsApp / Telefone / E-mail)',
@@ -71,7 +72,7 @@ async function recalcularScore(sessao, dados) {
 function mensagemFinalizacao(prioridade) {
   if (prioridade === 'QUENTE') return 'Seu caso foi identificado como prioritário. Entraremos em contato o mais breve possível.';
   if (prioridade === 'MEDIO') return 'Recebemos suas informações e iremos analisar seu caso.';
-  return 'Registramos sua solicitação.';
+  return 'Recebi suas informações 👍\n\nVamos analisar e te orientar sobre os próximos passos.';
 }
 
 // ─── Persistência por tipo de fluxo ───────────────────────────────────────
@@ -80,6 +81,9 @@ async function persistirFluxo(sessao) {
   if (!s) return;
 
   if (s.fluxo === 'cliente') {
+    // Cliente existente tem prioridade mínima MEDIO — já tem relacionamento com o escritório
+    const prioridadeCliente = s.flagAtencao ? 'QUENTE' : 'MEDIO';
+    await sessionManager.updateSession(s.sessao, { prioridade: prioridadeCliente });
     await storage.createClient({
       nome: s.nome,
       telefone: s.sessao,
@@ -87,7 +91,7 @@ async function persistirFluxo(sessao) {
       canalOrigem: s.canalOrigem,
       canalPreferido: s.canalPreferido,
       conteudo: s.ultimaMensagem,
-      urgencia: s.prioridade,
+      urgencia: prioridadeCliente,
       status: 'NOVO',
       origem: 'whatsapp-bot',
     });
@@ -268,7 +272,14 @@ async function transitar(sessao, estado, mensagem) {
 
     // ── OUTROS ──
     case 'outro_tipo':
-      return { proximoEstado: 'outro_intencao', salvar: { situacao: mensagem } };
+      return { proximoEstado: 'outro_impacto', salvar: { situacao: mensagem } };
+
+    case 'outro_impacto': {
+      const impacto = Math.min(3, Math.max(1, parseInt(mensagem) || 1));
+      const sess = await storage.getSession(sessao);
+      const scoreData = await recalcularScore(sessao, { ...sess, impacto });
+      return { proximoEstado: 'outro_intencao', salvar: { impacto, ...scoreData } };
+    }
 
     case 'outro_intencao': {
       const intencao = Math.min(3, Math.max(1, parseInt(mensagem) || 1));
