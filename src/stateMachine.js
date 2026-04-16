@@ -2,6 +2,7 @@
 const sessionManager = require('./sessionManager');
 const { calcularScore } = require('./scorer');
 const storage = require('./storage');
+const { randomUUID } = require('crypto');
 
 const RESET_KEYWORDS = ['menu', 'reiniciar', 'voltar'];
 const URGENT_KEYWORDS = ['urgente', 'advogado', 'falar com alguém', 'falar com alguem'];
@@ -80,53 +81,64 @@ async function persistirFluxo(sessao) {
   const s = await storage.getSession(sessao);
   if (!s) return;
 
-  if (s.fluxo === 'cliente') {
-    // Cliente existente tem prioridade mínima MEDIO — já tem relacionamento com o escritório
-    const prioridadeCliente = s.flagAtencao ? 'QUENTE' : 'MEDIO';
-    await sessionManager.updateSession(s.sessao, { prioridade: prioridadeCliente });
-    await storage.createClient({
+  const leadId = s.leadId || randomUUID();
+  await sessionManager.updateSession(sessao, { leadId });
+
+  try {
+    if (s.fluxo === 'cliente') {
+      const prioridadeCliente = s.flagAtencao ? 'QUENTE' : 'MEDIO';
+      await sessionManager.updateSession(s.sessao, { prioridade: prioridadeCliente });
+      await storage.createClient({
+        leadId,
+        nome: s.nome,
+        telefone: s.sessao,
+        tipoSolicitacao: 'Atendimento cliente existente',
+        canalOrigem: s.canalOrigem,
+        canalPreferido: s.canalPreferido,
+        conteudo: s.ultimaMensagem,
+        urgencia: prioridadeCliente,
+        flagAtencao: s.flagAtencao,
+        status: 'NOVO',
+        origem: 'whatsapp-bot',
+      });
+      return;
+    }
+
+    if (s.fluxo === 'trabalhista' || s.fluxo === 'familia') {
+      await storage.createLead({
+        leadId,
+        nome: s.nome,
+        telefone: s.sessao,
+        area: s.fluxo,
+        situacao: s.situacao,
+        impacto: s.impacto,
+        intencao: s.intencao,
+        score: s.score,
+        prioridade: s.prioridade,
+        flagAtencao: s.flagAtencao,
+        canalOrigem: s.canalOrigem,
+        canalPreferido: s.canalPreferido,
+        resumo: s.ultimaMensagem,
+        status: 'NOVO',
+        origem: 'whatsapp-bot',
+      });
+      return;
+    }
+
+    await storage.createOther({
+      leadId,
       nome: s.nome,
       telefone: s.sessao,
-      tipoSolicitacao: 'Atendimento cliente existente',
+      tipo: s.situacao,
       canalOrigem: s.canalOrigem,
       canalPreferido: s.canalPreferido,
       conteudo: s.ultimaMensagem,
-      urgencia: prioridadeCliente,
       status: 'NOVO',
       origem: 'whatsapp-bot',
     });
-    return;
+  } catch (err) {
+    console.error('[persistirFluxo error]', err.message);
   }
-
-  if (s.fluxo === 'trabalhista' || s.fluxo === 'familia') {
-    await storage.createLead({
-      nome: s.nome,
-      telefone: s.sessao,
-      area: s.fluxo,
-      situacao: s.situacao,
-      impacto: s.impacto,
-      intencao: s.intencao,
-      score: s.score,
-      prioridade: s.prioridade,
-      canalOrigem: s.canalOrigem,
-      canalPreferido: s.canalPreferido,
-      resumo: s.ultimaMensagem,
-      status: 'NOVO',
-      origem: 'whatsapp-bot',
-    });
-    return;
-  }
-
-  await storage.createOther({
-    nome: s.nome,
-    telefone: s.sessao,
-    tipo: s.situacao,
-    canalOrigem: s.canalOrigem,
-    canalPreferido: s.canalPreferido,
-    conteudo: s.ultimaMensagem,
-    status: 'NOVO',
-    origem: 'whatsapp-bot',
-  });
 }
 
 // ─── Transições por estado ────────────────────────────────────────────────
