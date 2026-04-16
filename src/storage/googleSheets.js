@@ -1,7 +1,7 @@
 const { google } = require('googleapis');
 const { randomUUID } = require('crypto');
 
-const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_ID;
+const SPREADSHEET_ID = (process.env.GOOGLE_SHEETS_ID || '').trim();
 
 function getAuth() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
