@@ -84,60 +84,71 @@ async function persistirFluxo(sessao) {
   const leadId = s.leadId || randomUUID();
   await sessionManager.updateSession(sessao, { leadId });
 
-  try {
-    if (s.fluxo === 'cliente') {
-      const prioridadeCliente = s.flagAtencao ? 'QUENTE' : 'MEDIO';
-      await sessionManager.updateSession(s.sessao, { prioridade: prioridadeCliente });
-      await storage.createClient({
+  let tentativa = 0;
+  const MAX = 3;
+
+  while (tentativa < MAX) {
+    tentativa++;
+    try {
+      if (s.fluxo === 'cliente') {
+        const prioridadeCliente = s.flagAtencao ? 'QUENTE' : 'MEDIO';
+        await sessionManager.updateSession(s.sessao, { prioridade: prioridadeCliente });
+        await storage.createClient({
+          leadId,
+          nome: s.nome,
+          telefone: s.sessao,
+          tipoSolicitacao: 'Atendimento cliente existente',
+          canalOrigem: s.canalOrigem,
+          canalPreferido: s.canalPreferido,
+          conteudo: s.ultimaMensagem,
+          urgencia: prioridadeCliente,
+          flagAtencao: s.flagAtencao,
+          status: 'NOVO',
+          origem: 'whatsapp-bot',
+        });
+        return;
+      }
+
+      if (s.fluxo === 'trabalhista' || s.fluxo === 'familia') {
+        await storage.createLead({
+          leadId,
+          nome: s.nome,
+          telefone: s.sessao,
+          area: s.fluxo,
+          situacao: s.situacao,
+          impacto: s.impacto,
+          intencao: s.intencao,
+          score: s.score,
+          prioridade: s.prioridade,
+          flagAtencao: s.flagAtencao,
+          canalOrigem: s.canalOrigem,
+          canalPreferido: s.canalPreferido,
+          resumo: s.ultimaMensagem,
+          status: 'NOVO',
+          origem: 'whatsapp-bot',
+        });
+        return;
+      }
+
+      await storage.createOther({
         leadId,
         nome: s.nome,
         telefone: s.sessao,
-        tipoSolicitacao: 'Atendimento cliente existente',
+        tipo: s.situacao,
         canalOrigem: s.canalOrigem,
         canalPreferido: s.canalPreferido,
         conteudo: s.ultimaMensagem,
-        urgencia: prioridadeCliente,
-        flagAtencao: s.flagAtencao,
         status: 'NOVO',
         origem: 'whatsapp-bot',
       });
       return;
-    }
 
-    if (s.fluxo === 'trabalhista' || s.fluxo === 'familia') {
-      await storage.createLead({
-        leadId,
-        nome: s.nome,
-        telefone: s.sessao,
-        area: s.fluxo,
-        situacao: s.situacao,
-        impacto: s.impacto,
-        intencao: s.intencao,
-        score: s.score,
-        prioridade: s.prioridade,
-        flagAtencao: s.flagAtencao,
-        canalOrigem: s.canalOrigem,
-        canalPreferido: s.canalPreferido,
-        resumo: s.ultimaMensagem,
-        status: 'NOVO',
-        origem: 'whatsapp-bot',
-      });
-      return;
+    } catch (err) {
+      console.error(`[persistirFluxo tentativa ${tentativa}/${MAX}]`, err.message);
+      if (tentativa === MAX) {
+        console.error('[persistirFluxo] falha definitiva — lead não persistido:', leadId);
+      }
     }
-
-    await storage.createOther({
-      leadId,
-      nome: s.nome,
-      telefone: s.sessao,
-      tipo: s.situacao,
-      canalOrigem: s.canalOrigem,
-      canalPreferido: s.canalPreferido,
-      conteudo: s.ultimaMensagem,
-      status: 'NOVO',
-      origem: 'whatsapp-bot',
-    });
-  } catch (err) {
-    console.error('[persistirFluxo error]', err.message);
   }
 }
 
