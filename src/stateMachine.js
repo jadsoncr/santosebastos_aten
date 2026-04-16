@@ -141,6 +141,17 @@ async function persistirFluxo(sessao) {
   }
 }
 
+// ─── Validação de opção numérica ──────────────────────────────────────────
+function opcao(msg, max) {
+  const n = parseInt(msg, 10);
+  return n >= 1 && n <= max ? String(n) : null;
+}
+
+// Retorna estado atual (repete pergunta) quando entrada for inválida
+function repetir(estado) {
+  return { proximoEstado: estado, salvar: {} };
+}
+
 // ─── Transições por estado ────────────────────────────────────────────────
 async function transitar(sessao, estado, mensagem) {
 
@@ -167,30 +178,39 @@ async function transitar(sessao, estado, mensagem) {
     }
 
     // ── TRABALHISTA ──
-    case 'trabalho_status':
+    case 'trabalho_status': {
+      if (!opcao(mensagem, 2)) return repetir('trabalho_status');
       return { proximoEstado: 'trabalho_tipo', salvar: { trabalhoStatus: mensagem } };
+    }
 
     case 'trabalho_tipo': {
+      if (!opcao(mensagem, 5)) return repetir('trabalho_tipo');
       const bonus = mensagem === '4' ? 2 : 0;
       const sess = await storage.getSession(sessao);
       const score = (sess.score || 0) + bonus;
       return { proximoEstado: 'trabalho_tempo', salvar: { trabalhoTipo: mensagem, score } };
     }
 
-    case 'trabalho_tempo':
+    case 'trabalho_tempo': {
+      if (!opcao(mensagem, 3)) return repetir('trabalho_tempo');
       return { proximoEstado: 'trabalho_salario', salvar: { trabalhoTempo: mensagem } };
+    }
 
     case 'trabalho_salario': {
+      if (!opcao(mensagem, 3)) return repetir('trabalho_salario');
       const sess = await storage.getSession(sessao);
       const bonus = mensagem === '3' ? 2 : mensagem === '2' ? 1 : 0;
       const score = (sess.score || 0) + bonus;
       return { proximoEstado: 'trabalho_contrato', salvar: { trabalhoSalario: mensagem, score } };
     }
 
-    case 'trabalho_contrato':
+    case 'trabalho_contrato': {
+      if (!opcao(mensagem, 3)) return repetir('trabalho_contrato');
       return { proximoEstado: 'trabalho_intencao', salvar: { trabalhoContrato: mensagem } };
+    }
 
     case 'trabalho_intencao': {
+      if (!opcao(mensagem, 3)) return repetir('trabalho_intencao');
       const sess = await storage.getSession(sessao);
       const bonus = mensagem === '2' ? 2 : 0;
       const score = (sess.score || 0) + bonus;
@@ -199,13 +219,18 @@ async function transitar(sessao, estado, mensagem) {
     }
 
     // ── FAMÍLIA ──
-    case 'familia_tipo':
+    case 'familia_tipo': {
+      if (!opcao(mensagem, 4)) return repetir('familia_tipo');
       return { proximoEstado: 'familia_status', salvar: { familiaTipo: mensagem } };
+    }
 
-    case 'familia_status':
+    case 'familia_status': {
+      if (!opcao(mensagem, 2)) return repetir('familia_status');
       return { proximoEstado: 'familia_urgencia', salvar: { familiaStatus: mensagem } };
+    }
 
     case 'familia_urgencia': {
+      if (!opcao(mensagem, 2)) return repetir('familia_urgencia');
       const sess = await storage.getSession(sessao);
       const bonus = mensagem === '1' ? 5 : 0;
       const score = (sess.score || 0) + bonus;
@@ -214,26 +239,33 @@ async function transitar(sessao, estado, mensagem) {
     }
 
     // ── CLIENTE ──
-    case 'cliente_identificacao':
+    case 'cliente_identificacao': {
+      if (mensagem.trim().length < 3) return repetir('cliente_identificacao');
       return { proximoEstado: 'final_cliente', salvar: { clienteId: mensagem } };
+    }
 
     // ── ADVOGADO ──
     case 'advogado_tipo': {
+      if (!opcao(mensagem, 2)) return repetir('advogado_tipo');
       if (mensagem === '2') return { proximoEstado: 'cliente_identificacao', salvar: { fluxo: 'cliente' } };
       return { proximoEstado: 'advogado_descricao', salvar: {} };
     }
 
     case 'advogado_descricao': {
+      if (mensagem.trim().length < 3) return repetir('advogado_descricao');
       const sess = await storage.getSession(sessao);
       const prioridade = calcularPrioridade(sess.score || 0);
       return { proximoEstado: 'coleta_nome', salvar: { advogadoDescricao: mensagem, prioridade } };
     }
 
     // ── OUTROS ──
-    case 'outros_descricao':
+    case 'outros_descricao': {
+      if (mensagem.trim().length < 3) return repetir('outros_descricao');
       return { proximoEstado: 'outros_impacto', salvar: { outrosDescricao: mensagem } };
+    }
 
     case 'outros_impacto': {
+      if (!opcao(mensagem, 2)) return repetir('outros_impacto');
       const sess = await storage.getSession(sessao);
       const bonus = mensagem === '1' ? 1 : 0;
       const score = (sess.score || 0) + bonus;
@@ -242,11 +274,18 @@ async function transitar(sessao, estado, mensagem) {
     }
 
     // ── COLETA DE NOME ──
-    case 'coleta_nome':
-      return { proximoEstado: 'contato_confirmacao', salvar: { nome: mensagem } };
+    case 'coleta_nome': {
+      const nome = mensagem.trim();
+      // rejeita nomes claramente inválidos: < 3 chars, só números, ou palavras-chave de menu
+      if (nome.length < 3 || /^\d+$/.test(nome) || RESET_KEYWORDS.includes(nome.toLowerCase())) {
+        return repetir('coleta_nome');
+      }
+      return { proximoEstado: 'contato_confirmacao', salvar: { nome } };
+    }
 
     // ── CONTATO ──
     case 'contato_confirmacao': {
+      if (!opcao(mensagem, 3)) return repetir('contato_confirmacao');
       if (mensagem === '1') return { proximoEstado: 'final_lead', salvar: { canalPreferido: 'whatsapp', telefoneContato: sessao } };
       if (mensagem === '2') return { proximoEstado: 'contato_numero', salvar: {} };
       return { proximoEstado: 'final_lead', salvar: { canalPreferido: 'ligacao', telefoneContato: sessao } };
@@ -256,13 +295,15 @@ async function transitar(sessao, estado, mensagem) {
       return { proximoEstado: 'contato_canal', salvar: { telefoneContato: mensagem } };
 
     case 'contato_canal': {
+      if (!opcao(mensagem, 2)) return repetir('contato_canal');
       const canal = mensagem === '1' ? 'whatsapp' : 'ligacao';
       return { proximoEstado: 'final_lead', salvar: { canalPreferido: canal } };
     }
 
     // ── PÓS-FINAL ──
     case 'pos_final': {
-      if (mensagem === '1') return { proximoEstado: 'start', salvar: { fluxo: null, score: 0, nome: null } };
+      if (!opcao(mensagem, 3)) return repetir('pos_final');
+      if (mensagem === '1') return { proximoEstado: 'start', salvar: { fluxo: null, score: 0, nome: null, ultimaMensagem: null } };
       if (mensagem === '2') return { proximoEstado: 'advogado_tipo', salvar: { fluxo: 'advogado', score: 3 } };
       return { proximoEstado: 'encerramento', salvar: {} };
     }
@@ -313,6 +354,13 @@ async function process(sessao, mensagem, canal) {
     const msg = mensagemFinalizacao('MEDIO', 'cliente');
     await sessionManager.updateSession(sessao, { estadoAtual: 'pos_final', ultimaPergunta: msg });
     return buildResposta(sessaoFinal, msg + '\n\n' + PERGUNTAS.pos_final, 'pos_final');
+  }
+
+  // pos_final → start: limpa sessão e mostra abertura com transição
+  if (proximoEstado === 'start' && sessaoObj.estadoAtual === 'pos_final') {
+    await sessionManager.resetSession(sessao, canal);
+    const msg = 'Tudo certo 👍\n\n' + PERGUNTAS.start;
+    return buildResposta(sessaoAtualizada, msg, 'start');
   }
 
   // Próxima pergunta
