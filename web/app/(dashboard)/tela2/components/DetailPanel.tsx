@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
+import { displayPhone, telLink, daysBetween } from '@/utils/format'
 import type { LeadCliente } from '../page'
 
 interface Atendimento {
@@ -100,9 +101,33 @@ export default function DetailPanel({ lead }: Props) {
       {/* Data */}
       <div className="space-y-2 border-t border-border pt-3">
         <h3 className="text-xs font-medium text-text-muted uppercase">Dados</h3>
-        {[['Nome', lead.nome], ['Telefone', lead.telefone], ['Área', lead.area], ['Canal', lead.canal_origem], ['Prioridade', lead.prioridade]].map(([label, value]) => (
-          <div key={label as string}><span className="text-xs text-text-muted">{label}</span><p className="text-sm text-text-primary">{(value as string) || '—'}</p></div>
+        {[['Nome', lead.nome], ['Telefone', null], ['Área', lead.area], ['Canal', lead.canal_origem], ['Prioridade', lead.prioridade]].map(([label, value]) => (
+          <div key={label as string}>
+            <span className="text-xs text-text-muted">{label}</span>
+            {label === 'Telefone' ? (
+              telLink(lead.telefone) ? (
+                <a href={telLink(lead.telefone)!} className="text-sm text-accent hover:underline block">{displayPhone(lead.telefone)}</a>
+              ) : (
+                <p className="text-sm text-text-primary">{displayPhone(lead.telefone)}</p>
+              )
+            ) : (
+              <p className="text-sm text-text-primary">{(value as string) || '—'}</p>
+            )}
+          </div>
         ))}
+        {/* Ciclo de venda — só pra clientes convertidos */}
+        {isCliente && atendimentos[0]?.encerrado_em && (
+          <div>
+            <span className="text-xs text-text-muted">Ciclo de venda</span>
+            <p className="text-sm font-mono text-text-primary">{daysBetween(lead.created_at, atendimentos[0].encerrado_em)} dias</p>
+          </div>
+        )}
+        {!isCliente && (
+          <div>
+            <span className="text-xs text-text-muted">Status</span>
+            <p className="text-sm text-text-primary">Em prospecção</p>
+          </div>
+        )}
       </div>
 
       {/* Timeline */}

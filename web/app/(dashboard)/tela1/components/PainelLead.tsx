@@ -6,6 +6,7 @@ import { useSocket } from '@/components/providers/SocketProvider'
 import ScoreCircle from './ScoreCircle'
 import PopupEnfileirar from './PopupEnfileirar'
 import { useRouter } from 'next/navigation'
+import { displayPhone, telLink } from '@/utils/format'
 import type { Lead } from '../page'
 
 interface Props {
@@ -203,8 +204,19 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
       {/* Dados coletados */}
       <div className="space-y-2 border-t border-border pt-3">
         <h3 className="text-xs font-medium text-text-secondary uppercase">Dados coletados</h3>
-        {[['Nome', lead.nome], ['Telefone', lead.telefone], ['Área', lead.area], ...(isCliente ? [] : [['Score', String(lead.score)], ['Prioridade', lead.prioridade]]), ['Canal', lead.canal_origem]].map(([label, value]) => (
-          <div key={label as string}><span className="text-xs text-text-muted">{label}</span><p className="text-sm text-text-primary">{(value as string) || '—'}</p></div>
+        {[['Nome', lead.nome], ['Telefone', null], ['Área', lead.area], ...(isCliente ? [] : [['Score', String(lead.score)], ['Prioridade', lead.prioridade]]), ['Canal', lead.canal_origem]].map(([label, value]) => (
+          <div key={label as string}>
+            <span className="text-xs text-text-muted">{label}</span>
+            {label === 'Telefone' ? (
+              telLink(lead.telefone) ? (
+                <a href={telLink(lead.telefone)!} className="text-sm text-accent hover:underline block">{displayPhone(lead.telefone)}</a>
+              ) : (
+                <p className="text-sm text-text-primary">{displayPhone(lead.telefone)}</p>
+              )
+            ) : (
+              <p className="text-sm text-text-primary">{(value as string) || '—'}</p>
+            )}
+          </div>
         ))}
       </div>
 

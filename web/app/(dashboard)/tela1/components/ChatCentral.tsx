@@ -6,6 +6,7 @@ import { useSocket } from '@/components/providers/SocketProvider'
 import QuickReplies from './QuickReplies'
 import PopupEnfileirar from './PopupEnfileirar'
 import PopupAguardando from './PopupAguardando'
+import { displayPhone, phoneTag } from '@/utils/format'
 import type { Lead } from '../page'
 
 interface Mensagem {
@@ -156,7 +157,7 @@ export default function ChatCentral({ lead }: Props) {
       {/* Header */}
       <div className="px-4 py-3 border-b border-border bg-bg-surface flex items-center justify-between">
         <span className="text-sm font-medium text-text-primary">
-          {lead.nome || lead.telefone || 'Lead'}
+          {lead.nome || displayPhone(lead.telefone) || 'Lead'}
         </span>
         <div className="flex items-center gap-2">
           <button className="px-3 py-1.5 rounded-md text-xs font-medium bg-bg-surface-hover text-text-primary hover:bg-border">
@@ -217,6 +218,7 @@ export default function ChatCentral({ lead }: Props) {
                 <p>{msg.conteudo}</p>
                 <span className="font-mono text-xs text-text-muted block mt-1">
                   {formatTime(msg.created_at)}
+                  {!sent && phoneTag(msg.de) && <span className="ml-1 opacity-60">via {phoneTag(msg.de)}</span>}
                 </span>
               </div>
             </div>

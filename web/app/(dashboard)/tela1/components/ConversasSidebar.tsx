@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useSocket } from '@/components/providers/SocketProvider'
+import { displayPhone } from '@/utils/format'
 import type { Lead } from '../page'
 
 interface Props {
@@ -164,7 +165,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1">
-              <span className="text-sm font-medium text-text-primary truncate">{lead.nome || lead.telefone || 'Lead'}</span>
+              <span className="text-sm font-medium text-text-primary truncate">{lead.nome || displayPhone(lead.telefone) || 'Lead'}</span>
               {lead._tipo === 'reaquecido' && <span className="text-xs">🔥</span>}
               {slaVencido && <span className="text-xs px-1 py-0.5 rounded bg-warning/10 text-warning font-mono">⏰</span>}
             </div>

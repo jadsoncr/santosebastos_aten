@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useSocket } from '@/components/providers/SocketProvider'
+import { displayPhone } from '@/utils/format'
 import type { LeadCliente, Filters } from '../page'
 
 interface Props {
@@ -163,7 +164,7 @@ export default function LeadList({ filters, selectedLeadId, onSelectLead }: Prop
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-text-primary truncate">
-                  {lead.nome || lead.telefone || 'Lead'}
+                  {lead.nome || displayPhone(lead.telefone) || 'Lead'}
                 </span>
                 <span className="text-xs font-mono font-medium text-text-muted">{lead.score}</span>
                 {lead.canal_origem && (
