@@ -22,6 +22,7 @@ export interface Lead {
   corrigido: boolean
   is_reaquecido?: boolean
   is_assumido?: boolean
+  status?: string | null
 }
 
 export default function Tela1Page() {

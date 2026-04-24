@@ -2,8 +2,71 @@
 const sessionManager = require('./sessionManager');
 const storage = require('./storage');
 const { randomUUID } = require('crypto');
+const { getSupabase } = require('./supabaseAdmin');
 
 const RESET_KEYWORDS = ['menu', 'reiniciar', 'voltar'];
+
+// ─── Propagação de contexto para identities/leads ─────────────────────────
+// Atualiza identities e leads com dados capturados pelo bot.
+// NUNCA sobrescreve dados já preenchidos (operador ou captura anterior).
+// Falhas são logadas mas NUNCA bloqueiam o fluxo do bot.
+
+async function propagarNome(identityId, nome) {
+  try {
+    const db = getSupabase();
+    // Atualizar identities.nome apenas se null
+    await db
+      .from('identities')
+      .update({ nome })
+      .eq('id', identityId)
+      .is('nome', null);
+
+    // Atualizar leads.nome para o lead mais recente desta identidade, apenas se null
+    const { data: leadRecente } = await db
+      .from('leads')
+      .select('id')
+      .eq('identity_id', identityId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (leadRecente) {
+      await db
+        .from('leads')
+        .update({ nome })
+        .eq('id', leadRecente.id)
+        .is('nome', null);
+    }
+  } catch (err) {
+    console.error(JSON.stringify({
+      level: 'warn',
+      msg: 'propagar_nome_fail',
+      identity_id: identityId,
+      erro: err.message,
+      ts: new Date().toISOString(),
+    }));
+  }
+}
+
+async function propagarTelefone(identityId, telefone) {
+  try {
+    const db = getSupabase();
+    // Atualizar identities.telefone apenas se null
+    await db
+      .from('identities')
+      .update({ telefone })
+      .eq('id', identityId)
+      .is('telefone', null);
+  } catch (err) {
+    console.error(JSON.stringify({
+      level: 'warn',
+      msg: 'propagar_telefone_fail',
+      identity_id: identityId,
+      erro: err.message,
+      ts: new Date().toISOString(),
+    }));
+  }
+}
 
 // ─── Perguntas por estado ──────────────────────────────────────────────────
 const PERGUNTAS = {
@@ -362,19 +425,31 @@ async function transitar(sessao, estado, mensagem) {
       if (nome.length < 3 || /^\d+$/.test(nome) || RESET_KEYWORDS.includes(nome.toLowerCase())) {
         return repetir('coleta_nome');
       }
+      // Propagar nome para identities e leads (não bloqueia o fluxo)
+      propagarNome(sessao, nome);
       return { proximoEstado: 'contato_confirmacao', salvar: { nome } };
     }
 
     // ── CONTATO ──
     case 'contato_confirmacao': {
       if (!opcao(mensagem, 3)) return repetir('contato_confirmacao');
-      if (mensagem === '1') return { proximoEstado: 'final_lead', salvar: { canalPreferido: 'whatsapp', telefoneContato: sessao } };
+      if (mensagem === '1') {
+        // Propagar sessao (channel_user_id) como telefone se canal for WhatsApp
+        const sess = await sessionManager.getSession(sessao);
+        if (sess.canalOrigem === 'whatsapp') {
+          propagarTelefone(sessao, sessao);
+        }
+        return { proximoEstado: 'final_lead', salvar: { canalPreferido: 'whatsapp', telefoneContato: sessao } };
+      }
       if (mensagem === '2') return { proximoEstado: 'contato_numero', salvar: {} };
       return { proximoEstado: 'final_lead', salvar: { canalPreferido: 'ligacao', telefoneContato: sessao } };
     }
 
-    case 'contato_numero':
+    case 'contato_numero': {
+      // Propagar telefone para identities (não bloqueia o fluxo)
+      propagarTelefone(sessao, mensagem);
       return { proximoEstado: 'contato_canal', salvar: { telefoneContato: mensagem } };
+    }
 
     case 'contato_canal': {
       if (!opcao(mensagem, 2)) return repetir('contato_canal');

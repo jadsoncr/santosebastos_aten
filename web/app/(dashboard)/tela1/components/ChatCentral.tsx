@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useSocket } from '@/components/providers/SocketProvider'
 import QuickReplies from './QuickReplies'
+import SmartSnippets from './SmartSnippets'
 import PopupEnfileirar from './PopupEnfileirar'
 import PopupAguardando from './PopupAguardando'
 import { displayPhone, phoneTag } from '@/utils/format'
@@ -33,8 +34,10 @@ export default function ChatCentral({ lead }: Props) {
   const [showAguardando, setShowAguardando] = useState(false)
   const [operadorId, setOperadorId] = useState<string | null>(null)
   const [isAssumido, setIsAssumido] = useState(lead?.is_assumido ?? false)
+  const [channelMap, setChannelMap] = useState<Record<string, string>>({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const socket = useSocket()
   const supabase = createClient()
 
@@ -89,6 +92,29 @@ export default function ChatCentral({ lead }: Props) {
 
   useEffect(() => { loadMessages() }, [loadMessages])
 
+  // Load channel map for badge display
+  useEffect(() => {
+    if (!lead) { setChannelMap({}); return }
+    async function loadChannels() {
+      const { data: leadData } = await supabase
+        .from('leads')
+        .select('identity_id')
+        .eq('id', lead!.id)
+        .maybeSingle()
+      if (!leadData?.identity_id) return
+      const { data: channels } = await supabase
+        .from('identity_channels')
+        .select('channel, channel_user_id')
+        .eq('identity_id', leadData.identity_id)
+      if (channels) {
+        const map: Record<string, string> = {}
+        channels.forEach(c => { map[c.channel_user_id] = c.channel })
+        setChannelMap(map)
+      }
+    }
+    loadChannels()
+  }, [lead?.id])
+
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -129,6 +155,17 @@ export default function ChatCentral({ lead }: Props) {
     } else {
       setShowQuickReplies(false)
       setQuickReplyQuery('')
+    }
+
+    // Emit typing with 500ms debounce
+    if (lead && socket && value.trim()) {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+      typingTimeoutRef.current = setTimeout(() => {
+        socket.emit('operador_digitando', {
+          lead_id: lead.id,
+          operador_nome: 'Operador',
+        })
+      }, 500)
     }
   }
 
@@ -266,7 +303,17 @@ export default function ChatCentral({ lead }: Props) {
                 <p>{msg.conteudo}</p>
                 <span className="font-mono text-xs text-text-muted block mt-1">
                   {formatTime(msg.created_at)}
-                  {!sent && phoneTag(msg.de) && <span className="ml-1 opacity-60">via {phoneTag(msg.de)}</span>}
+                  {!sent && msg.tipo !== 'sistema' && msg.tipo !== 'nota_interna' && channelMap[msg.de] ? (
+                    <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded ${
+                      channelMap[msg.de] === 'telegram'
+                        ? 'bg-accent/10 text-accent'
+                        : 'bg-success/10 text-success'
+                    }`}>
+                      via {channelMap[msg.de] === 'telegram' ? 'Telegram' : 'WhatsApp'}
+                    </span>
+                  ) : (
+                    !sent && phoneTag(msg.de) && <span className="ml-1 opacity-60">via {phoneTag(msg.de)}</span>
+                  )}
                 </span>
               </div>
             </div>
@@ -303,6 +350,18 @@ export default function ChatCentral({ lead }: Props) {
             {isNotaInterna ? '📝 Nota interna' : '💬 Mensagem'}
           </button>
         </div>
+
+        {/* Smart Snippets */}
+        <SmartSnippets
+          lead={lead}
+          onInject={(text) => setInput(text)}
+          onAssumir={async () => {
+            if (!lead.is_assumido) {
+              await supabase.from('leads').update({ is_assumido: true }).eq('id', lead.id)
+              setIsAssumido(true)
+            }
+          }}
+        />
 
         {/* Barra de input com botões */}
         <div className="flex items-end gap-2">

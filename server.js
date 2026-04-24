@@ -15,12 +15,44 @@ const { getSupabase } = require('./src/supabaseAdmin');
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
+const BOT_PERSONAS = {
+  'trabalhista': 'Dr. Rafael',
+  'familia': 'Dra. Mariana',
+  'previdenciario': 'Dr. Carlos',
+  'consumidor': 'Dra. Beatriz',
+  'civel': 'Dr. André',
+  'criminal': 'Dra. Patrícia',
+};
+const DEFAULT_PERSONA = 'Atendimento Santos & Bastos';
+
 async function sendTelegram(chat_id, text) {
   await fetch(`${TELEGRAM_API}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id, text }),
   });
+}
+
+async function sendTelegramWithTyping(chat_id, text, area) {
+  try {
+    await fetch(`${TELEGRAM_API}/sendChatAction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id, action: 'typing' }),
+    });
+  } catch (typingErr) {
+    console.error(JSON.stringify({
+      level: 'warn',
+      msg: 'typing_action_fail',
+      chat_id,
+      erro: typingErr.message,
+      ts: new Date().toISOString(),
+    }));
+  }
+  await new Promise(r => setTimeout(r, 1500));
+  await sendTelegram(chat_id, text);
+  const areaKey = (area || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return BOT_PERSONAS[areaKey] || DEFAULT_PERSONA;
 }
 
 const app = express();
@@ -95,6 +127,46 @@ app.post('/webhook', async (req, res) => {
       return res.status(500).json({ error: 'Erro ao resolver identidade.' });
     }
 
+    // ── CAPTURA AGRESSIVA: extrair nome/telefone do Telegram ──
+    // Preenche identities.nome e leads.nome com dados do perfil Telegram,
+    // mas NUNCA sobrescreve dados já preenchidos (pelo bot ou operador).
+    let nome_telegram = null;
+    if (isTelegram && tgMsg.from) {
+      const firstName = tgMsg.from.first_name || '';
+      const lastName = tgMsg.from.last_name || '';
+      nome_telegram = lastName ? `${firstName} ${lastName}` : firstName || null;
+
+      if (nome_telegram || tgMsg.from.phone_number) {
+        try {
+          const db = getSupabase();
+          // Atualizar identities.nome apenas se null
+          if (nome_telegram) {
+            await db
+              .from('identities')
+              .update({ nome: nome_telegram })
+              .eq('id', identity_id)
+              .is('nome', null);
+          }
+          // Atualizar identities.telefone apenas se phone_number disponível e telefone null
+          if (tgMsg.from.phone_number) {
+            await db
+              .from('identities')
+              .update({ telefone: tgMsg.from.phone_number })
+              .eq('id', identity_id)
+              .is('telefone', null);
+          }
+        } catch (captureErr) {
+          console.error(JSON.stringify({
+            level: 'warn',
+            msg: 'telegram_capture_fail',
+            identity_id,
+            erro: captureErr.message,
+            ts: new Date().toISOString(),
+          }));
+        }
+      }
+    }
+
     // Usar identity_id como chave de sessão, com legacy_id para migração lazy
     const sessAntes = await sessionManager.getSession(identity_id, canal, sessao);
 
@@ -115,7 +187,7 @@ app.post('/webhook', async (req, res) => {
         await db.from('leads').insert({
           identity_id,
           request_id: genUUID(),
-          nome: null,
+          nome: nome_telegram,
           telefone: null,
           canal_origem: channel,
           channel_user_id,
@@ -126,6 +198,14 @@ app.post('/webhook', async (req, res) => {
         // Broadcast pra sidebar atualizar
         io.emit('lead_novo', { identity_id, channel_user_id });
       } else {
+        // Atualizar leads.nome com nome_telegram apenas se leads.nome for null
+        if (nome_telegram) {
+          await db
+            .from('leads')
+            .update({ nome: nome_telegram })
+            .eq('id', existingLead.id)
+            .is('nome', null);
+        }
         // Atualizar channel_user_id e ultima_msg
         await db.from('leads').update({
           channel_user_id,
@@ -141,6 +221,7 @@ app.post('/webhook', async (req, res) => {
             de: channel_user_id,
             tipo: 'mensagem',
             conteudo: mensagem,
+            canal_origem: channel,
           });
           io.emit('nova_mensagem_salva', {
             lead_id: existingLead.id,
@@ -243,13 +324,19 @@ app.post('/webhook', async (req, res) => {
           de: channel_user_id,
           tipo: 'mensagem',
           conteudo: mensagem,
+          canal_origem: channel,
         });
         // Resposta do bot
+        const botArea = resultado.fluxo || resultado.area || null;
+        const botAreaKey = (botArea || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const personaNome = BOT_PERSONAS[botAreaKey] || DEFAULT_PERSONA;
         await db.from('mensagens').insert({
           lead_id: leadId,
           de: 'bot',
           tipo: 'mensagem',
           conteudo: resposta.message,
+          canal_origem: channel,
+          persona_nome: personaNome,
         });
 
         // Log de sistema: classificação do bot
@@ -260,6 +347,7 @@ app.post('/webhook', async (req, res) => {
             de: 'sistema',
             tipo: 'sistema',
             conteudo: logMsg,
+            canal_origem: channel,
           });
         }
         // Broadcast via Socket.io
@@ -290,7 +378,8 @@ app.post('/webhook', async (req, res) => {
     }
 
     if (isTelegram) {
-      await sendTelegram(tgMsg.chat.id, resposta.message);
+      const botArea = resultado.fluxo || resultado.area || null;
+      await sendTelegramWithTyping(tgMsg.chat.id, resposta.message, botArea);
       return res.sendStatus(200);
     }
 
@@ -364,6 +453,8 @@ const io = new Server(httpServer, {
 });
 
 // ─── Socket.io handlers ────────────────────────────────────────────────────
+const typingThrottle = new Map();
+
 io.on('connection', (socket) => {
   console.log(`[socket] conectado: ${socket.id}`);
 
@@ -444,6 +535,41 @@ io.on('connection', (socket) => {
   // Lead encerrado — broadcast para remover da fila de todos
   socket.on('lead_encerrado', ({ lead_id, tipo }) => {
     io.emit('lead_encerrado', { lead_id, tipo });
+  });
+
+  // Relay de typing do operador para Telegram
+  socket.on('operador_digitando', async ({ lead_id, operador_nome }) => {
+    try {
+      const db = getSupabase();
+      const { data: lead } = await db
+        .from('leads')
+        .select('channel_user_id, canal_origem, is_assumido')
+        .eq('id', lead_id)
+        .maybeSingle();
+
+      if (!lead || !lead.is_assumido || lead.canal_origem !== 'telegram') return;
+
+      const chatId = lead.channel_user_id;
+      const now = Date.now();
+      const last = typingThrottle.get(chatId) || 0;
+
+      if (now - last < 4000) return; // throttle 4s
+      typingThrottle.set(chatId, now);
+
+      await fetch(`${TELEGRAM_API}/sendChatAction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, action: 'typing' }),
+      });
+    } catch (typingErr) {
+      console.error(JSON.stringify({
+        level: 'warn',
+        msg: 'operador_typing_fail',
+        lead_id,
+        erro: typingErr.message,
+        ts: new Date().toISOString(),
+      }));
+    }
   });
 
   socket.on('disconnect', () => {
