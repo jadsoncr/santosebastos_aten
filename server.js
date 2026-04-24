@@ -24,13 +24,6 @@ const app = express();
 app.use(express.json());
 
 app.post('/webhook', async (req, res) => {
-  // TODO: remover após debug
-  console.log('[DEBUG] webhook recebido', JSON.stringify({
-    adapter: process.env.STORAGE_ADAPTER,
-    supabase_url: process.env.SUPABASE_URL ? 'ok' : 'MISSING',
-    supabase_key: process.env.SUPABASE_KEY ? 'ok' : 'MISSING',
-  }));
-
   try {
     // Detectar origem: Telegram ou padrão (n8n/WhatsApp)
     const isTelegram = !!(req.body.message || req.body.edited_message);
@@ -87,8 +80,6 @@ app.post('/webhook', async (req, res) => {
     try {
       identity_id = await resolveIdentity(channel, channel_user_id, telefone);
     } catch (err) {
-      // TODO: remover stack após debug
-      console.error('[IDENTITY_FAIL]', err.message, err.stack);
       console.error(JSON.stringify({
         level: 'error',
         msg: 'identity_resolve_fail',

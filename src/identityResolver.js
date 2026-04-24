@@ -127,9 +127,6 @@ async function resolveIdentity(channel, channel_user_id, telefone = null) {
     throw new Error('[identityResolver] channel e channel_user_id são obrigatórios');
   }
 
-  // TODO: remover após debug
-  console.log('[DEBUG] resolvendo identidade', { channel, channel_user_id, useSupabase });
-
   if (useSupabase) {
     return resolveIdentitySupabase(channel, channel_user_id, telefone);
   }
