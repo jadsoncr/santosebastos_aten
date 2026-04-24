@@ -67,77 +67,82 @@ function calcularPrioridade(score) {
 
 // ─── Persistência ─────────────────────────────────────────────────────────
 async function persistirFluxo(sessao) {
-  const s = await storage.getSession(sessao);
+  const s = await sessionManager.getSession(sessao);
   if (!s) return;
 
   const leadId = s.leadId || randomUUID();
+  const request_id = randomUUID();
   await sessionManager.updateSession(sessao, { leadId });
 
-  let tentativa = 0;
-  const MAX = 3;
-
-  while (tentativa < MAX) {
-    tentativa++;
-    try {
-      if (s.fluxo === 'cliente') {
-        await storage.createClient({
-          leadId,
-          nome: s.clienteId || s.nome,
-          telefone: s.sessao,
-          canalOrigem: s.canalOrigem,
-          conteudo: s.clienteId,
-          urgencia: s.flagAtencao ? 'QUENTE' : 'MEDIO',
-          flagAtencao: s.flagAtencao,
-          status: 'NOVO',
-        });
-        return;
-      }
-
-      if (s.fluxo === 'outros') {
-        await storage.createOther({
-          leadId,
-          nome: s.nome,
-          telefone: s.telefoneContato || s.sessao,
-          tipo: s.outrosDescricao,
-          canalOrigem: s.canalOrigem,
-          conteudo: s.outrosDescricao,
-          status: 'NOVO',
-        });
-        return;
-      }
-
-      // trabalhista, familia, advogado
-      await storage.createLead({
+  try {
+    if (s.fluxo === 'cliente') {
+      await storage.createClient({
         leadId,
-        nome: s.nome,
-        telefone: s.telefoneContato || s.sessao,
-        area: s.fluxo === 'advogado' ? 'trabalhista' : s.fluxo,
-        situacao: s.advogadoDescricao || s.trabalhoTipo || s.familiaTipo || '',
-        impacto: s.trabalhoSalario || s.familiaUrgencia || 1,
-        intencao: s.trabalhoIntencao || 1,
-        score: s.score || 0,
-        prioridade: s.prioridade || 'FRIO',
-        flagAtencao: s.flagAtencao,
+        request_id,
+        identity_id: sessao,
+        nome: s.clienteId || s.nome,
+        telefone: s.sessao,
         canalOrigem: s.canalOrigem,
-        canalPreferido: s.canalPreferido,
-        resumo: JSON.stringify({
-          status: s.trabalhoStatus,
-          tipo: s.trabalhoTipo || s.familiaTipo,
-          tempo: s.trabalhoTempo,
-          salario: s.trabalhoSalario,
-          contrato: s.trabalhoContrato,
-          intencao: s.trabalhoIntencao || s.familiaIntencao,
-        }),
+        conteudo: s.clienteId,
+        urgencia: s.flagAtencao ? 'QUENTE' : 'MEDIO',
+        flagAtencao: s.flagAtencao,
         status: 'NOVO',
       });
       return;
-
-    } catch (err) {
-      console.error(`[persistirFluxo tentativa ${tentativa}/${MAX}]`, err.message);
-      if (tentativa === MAX) {
-        console.error('[persistirFluxo] falha definitiva — lead não persistido:', leadId);
-      }
     }
+
+    if (s.fluxo === 'outros') {
+      await storage.createOther({
+        leadId,
+        request_id,
+        identity_id: sessao,
+        nome: s.nome,
+        telefone: s.telefoneContato || s.sessao,
+        tipo: s.outrosDescricao,
+        canalOrigem: s.canalOrigem,
+        conteudo: s.outrosDescricao,
+        status: 'NOVO',
+      });
+      return;
+    }
+
+    // trabalhista, familia, advogado
+    await storage.createLead({
+      leadId,
+      request_id,
+      identity_id: sessao,
+      nome: s.nome,
+      telefone: s.telefoneContato || s.sessao,
+      area: s.fluxo === 'advogado' ? 'trabalhista' : s.fluxo,
+      situacao: s.advogadoDescricao || s.trabalhoTipo || s.familiaTipo || '',
+      impacto: s.trabalhoSalario || s.familiaUrgencia || 1,
+      intencao: s.trabalhoIntencao || 1,
+      score: s.score || 0,
+      prioridade: s.prioridade || 'FRIO',
+      flagAtencao: s.flagAtencao,
+      canalOrigem: s.canalOrigem,
+      canalPreferido: s.canalPreferido,
+      resumo: JSON.stringify({
+        status: s.trabalhoStatus,
+        tipo: s.trabalhoTipo || s.familiaTipo,
+        tempo: s.trabalhoTempo,
+        salario: s.trabalhoSalario,
+        contrato: s.trabalhoContrato,
+        intencao: s.trabalhoIntencao || s.familiaIntencao,
+      }),
+      status: 'NOVO',
+    });
+  } catch (err) {
+    console.error(JSON.stringify({
+      level: 'error',
+      msg: 'persist_fail',
+      request_id,
+      identity_id: sessao,
+      fn: s.fluxo === 'cliente' ? 'createClient' : s.fluxo === 'outros' ? 'createOther' : 'createLead',
+      erro: err.message,
+      ts: new Date().toISOString(),
+    }));
+    await sessionManager.updateSession(sessao, { persist_error: true });
   }
 }
 
@@ -186,7 +191,7 @@ async function transitar(sessao, estado, mensagem) {
     case 'trabalho_tipo': {
       if (!opcao(mensagem, 5)) return repetir('trabalho_tipo');
       const bonus = mensagem === '4' ? 2 : 0;
-      const sess = await storage.getSession(sessao);
+      const sess = await sessionManager.getSession(sessao);
       const score = (sess.score || 0) + bonus;
       return { proximoEstado: 'trabalho_tempo', salvar: { trabalhoTipo: mensagem, score } };
     }
@@ -198,7 +203,7 @@ async function transitar(sessao, estado, mensagem) {
 
     case 'trabalho_salario': {
       if (!opcao(mensagem, 3)) return repetir('trabalho_salario');
-      const sess = await storage.getSession(sessao);
+      const sess = await sessionManager.getSession(sessao);
       const bonus = mensagem === '3' ? 2 : mensagem === '2' ? 1 : 0;
       const score = (sess.score || 0) + bonus;
       return { proximoEstado: 'trabalho_contrato', salvar: { trabalhoSalario: mensagem, score } };
@@ -211,7 +216,7 @@ async function transitar(sessao, estado, mensagem) {
 
     case 'trabalho_intencao': {
       if (!opcao(mensagem, 3)) return repetir('trabalho_intencao');
-      const sess = await storage.getSession(sessao);
+      const sess = await sessionManager.getSession(sessao);
       const bonus = mensagem === '2' ? 2 : 0;
       const score = (sess.score || 0) + bonus;
       const prioridade = calcularPrioridade(score);
@@ -231,7 +236,7 @@ async function transitar(sessao, estado, mensagem) {
 
     case 'familia_urgencia': {
       if (!opcao(mensagem, 2)) return repetir('familia_urgencia');
-      const sess = await storage.getSession(sessao);
+      const sess = await sessionManager.getSession(sessao);
       const bonus = mensagem === '1' ? 5 : 0;
       const score = (sess.score || 0) + bonus;
       const prioridade = calcularPrioridade(score);
@@ -253,7 +258,7 @@ async function transitar(sessao, estado, mensagem) {
 
     case 'advogado_descricao': {
       if (mensagem.trim().length < 3) return repetir('advogado_descricao');
-      const sess = await storage.getSession(sessao);
+      const sess = await sessionManager.getSession(sessao);
       const prioridade = calcularPrioridade(sess.score || 0);
       return { proximoEstado: 'coleta_nome', salvar: { advogadoDescricao: mensagem, prioridade } };
     }
@@ -266,7 +271,7 @@ async function transitar(sessao, estado, mensagem) {
 
     case 'outros_impacto': {
       if (!opcao(mensagem, 2)) return repetir('outros_impacto');
-      const sess = await storage.getSession(sessao);
+      const sess = await sessionManager.getSession(sessao);
       const bonus = mensagem === '1' ? 1 : 0;
       const score = (sess.score || 0) + bonus;
       const prioridade = calcularPrioridade(score);
@@ -337,12 +342,12 @@ async function process(sessao, mensagem, canal) {
   await sessionManager.updateSession(sessao, { ...salvar, estadoAtual: proximoEstado });
 
   // Recarregar sessão
-  const sessaoAtualizada = await storage.getSession(sessao);
+  const sessaoAtualizada = await sessionManager.getSession(sessao);
 
   // Estados de finalização
   if (proximoEstado === 'final_lead') {
     await persistirFluxo(sessao);
-    const sessaoFinal = await storage.getSession(sessao);
+    const sessaoFinal = await sessionManager.getSession(sessao);
     const msg = mensagemFinalizacao(sessaoFinal.prioridade, sessaoFinal.fluxo);
     await sessionManager.updateSession(sessao, { estadoAtual: 'pos_final', ultimaPergunta: msg });
     return buildResposta(sessaoFinal, msg + '\n\n' + PERGUNTAS.pos_final, 'pos_final');
@@ -350,7 +355,7 @@ async function process(sessao, mensagem, canal) {
 
   if (proximoEstado === 'final_cliente') {
     await persistirFluxo(sessao);
-    const sessaoFinal = await storage.getSession(sessao);
+    const sessaoFinal = await sessionManager.getSession(sessao);
     const msg = mensagemFinalizacao('MEDIO', 'cliente');
     await sessionManager.updateSession(sessao, { estadoAtual: 'pos_final', ultimaPergunta: msg });
     return buildResposta(sessaoFinal, msg + '\n\n' + PERGUNTAS.pos_final, 'pos_final');

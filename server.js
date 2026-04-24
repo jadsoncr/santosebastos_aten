@@ -5,43 +5,9 @@ const normalize = require('./src/normalizer');
 const { process: processar } = require('./src/stateMachine');
 const { buildResponse } = require('./src/responder');
 const sessionManager = require('./src/sessionManager');
-const { createAbandono } = require('./src/storage/googleSheets');
-
-const ABANDONO_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutos
-const RESET_TIMEOUT_MS   = 24 * 60 * 60 * 1000; // 24 horas → reinicia sessão
-const ESTADOS_FINAIS = ['pos_final', 'encerramento', 'final_lead', 'final_cliente'];
-
-async function checkAbandono(sess) {
-  if (!sess.atualizadoEm) return;
-  if (ESTADOS_FINAIS.includes(sess.estadoAtual)) return;
-  if (sess.statusSessao === 'ABANDONOU') return;
-  if (sess.estadoAtual === 'start' && !sess.ultimaMensagem) return; // nunca interagiu
-
-  const diff = Date.now() - new Date(sess.atualizadoEm).getTime();
-  if (diff < ABANDONO_TIMEOUT_MS) return;
-
-  try {
-    await createAbandono({
-      sessao: sess.sessao,
-      fluxo: sess.fluxo,
-      ultimoEstado: sess.estadoAtual,
-      score: sess.score,
-      prioridade: sess.prioridade,
-      nome: sess.nome,
-      canalOrigem: sess.canalOrigem,
-      mensagensEnviadas: sess.mensagensEnviadas || 0,
-    });
-
-    if (diff >= RESET_TIMEOUT_MS) {
-      // sumiu >24h — reinicia sessão para nova conversa
-      await sessionManager.resetSession(sess.sessao, sess.canalOrigem);
-    } else {
-      await sessionManager.updateSession(sess.sessao, { statusSessao: 'ABANDONOU' });
-    }
-  } catch (err) {
-    console.error('[checkAbandono error]', err.message);
-  }
-}
+const { createAbandono } = require('./src/storage');
+const { resolveIdentity } = require('./src/identityResolver');
+const { ESTADOS_FINAIS } = require('./src/sessionManager');
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
@@ -58,6 +24,13 @@ const app = express();
 app.use(express.json());
 
 app.post('/webhook', async (req, res) => {
+  // TODO: remover após debug
+  console.log('[DEBUG] webhook recebido', JSON.stringify({
+    adapter: process.env.STORAGE_ADAPTER,
+    supabase_url: process.env.SUPABASE_URL ? 'ok' : 'MISSING',
+    supabase_key: process.env.SUPABASE_KEY ? 'ok' : 'MISSING',
+  }));
+
   try {
     // Detectar origem: Telegram ou padrão (n8n/WhatsApp)
     const isTelegram = !!(req.body.message || req.body.edited_message);
@@ -68,9 +41,16 @@ app.post('/webhook', async (req, res) => {
       if (!tgMsg.text) {
         // áudio, foto, sticker, etc — tratamento progressivo por nível
         const chatId = String(tgMsg.chat.id);
-        const sess = await sessionManager.getSession(chatId, 'telegram');
+        let audioIdentityId;
+        try {
+          audioIdentityId = await resolveIdentity('telegram', chatId, null);
+        } catch (_) {
+          await sendTelegram(chatId, 'Erro interno. Tente novamente.');
+          return res.sendStatus(200);
+        }
+        const sess = await sessionManager.getSession(audioIdentityId, 'telegram', chatId);
         const count = (sess.audioCount || 0) + 1;
-        await sessionManager.updateSession(chatId, { audioCount: count });
+        await sessionManager.updateSession(audioIdentityId, { audioCount: count });
 
         let msg;
         if (count === 1) {
@@ -97,14 +77,35 @@ app.post('/webhook', async (req, res) => {
       return res.status(400).json({ error: 'Campo "sessao" é obrigatório.' });
     }
 
-    // Detecta abandono antes de processar nova mensagem
-    const sessAntes = await sessionManager.getSession(sessao, canal);
-    await checkAbandono(sessAntes);
+    // Resolver identidade unificada
+    // Telegram: telefone = null (API não fornece). Merge cross-canal só quando fluxo coleta número.
+    const telefone = body.telefone || null;
+    const channel = isTelegram ? 'telegram' : (canal || 'whatsapp');
+    const channel_user_id = sessao;
 
-    const resultado = await processar(sessao, mensagem, canal);
+    let identity_id;
+    try {
+      identity_id = await resolveIdentity(channel, channel_user_id, telefone);
+    } catch (err) {
+      console.error(JSON.stringify({
+        level: 'error',
+        msg: 'identity_resolve_fail',
+        channel,
+        channel_user_id,
+        erro: err.message,
+        ts: new Date().toISOString(),
+      }));
+      if (isTelegram) return res.sendStatus(200);
+      return res.status(500).json({ error: 'Erro ao resolver identidade.' });
+    }
+
+    // Usar identity_id como chave de sessão, com legacy_id para migração lazy
+    const sessAntes = await sessionManager.getSession(identity_id, canal, sessao);
+
+    const resultado = await processar(identity_id, mensagem, canal);
 
     // Incrementa contador de mensagens
-    await sessionManager.updateSession(sessao, {
+    await sessionManager.updateSession(identity_id, {
       mensagensEnviadas: (sessAntes.mensagensEnviadas || 0) + 1,
       statusSessao: ESTADOS_FINAIS.includes(resultado.estado) ? 'FINALIZADO' : 'ATIVO',
     });
@@ -137,8 +138,8 @@ function adminAuth(req, res, next) {
 }
 
 app.get('/admin/sessions', adminAuth, async (_req, res) => {
-  const storage = require('./src/storage/inMemory');
-  const { sessions } = storage._getAll();
+  const { _getAll } = require('./src/storage');
+  const { sessions } = _getAll();
   const agora = Date.now();
 
   const lista = Object.values(sessions).map(s => ({
