@@ -32,6 +32,7 @@ export default function ChatCentral({ lead }: Props) {
   const [showEnfileirar, setShowEnfileirar] = useState(false)
   const [showAguardando, setShowAguardando] = useState(false)
   const [operadorId, setOperadorId] = useState<string | null>(null)
+  const [isAssumido, setIsAssumido] = useState(lead?.is_assumido ?? false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const socket = useSocket()
@@ -46,7 +47,8 @@ export default function ChatCentral({ lead }: Props) {
 
   // Load messages when lead changes
   const loadMessages = useCallback(async () => {
-    if (!lead) { setMensagens([]); return }
+    if (!lead) { setMensagens([]); setIsAssumido(false); return }
+    setIsAssumido(lead.is_assumido ?? false)
 
     // Buscar todas as mensagens de todos os leads deste identity_id
     // Primeiro, pegar o identity_id do lead
@@ -143,6 +145,11 @@ export default function ChatCentral({ lead }: Props) {
       origem: 'humano',
     })
 
+    // Mensagem humana ativa o silenciador no server — atualizar badge local
+    if (!isNotaInterna) {
+      setIsAssumido(true)
+    }
+
     setInput('')
     setShowQuickReplies(false)
   }
@@ -186,9 +193,20 @@ export default function ChatCentral({ lead }: Props) {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-4 py-3 border-b border-border bg-bg-surface flex items-center justify-between">
-        <span className="text-sm font-medium text-text-primary">
-          {lead.nome || displayPhone(lead.telefone) || 'Lead'}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-text-primary">
+            {lead.nome || displayPhone(lead.telefone) || 'Lead'}
+          </span>
+          {isAssumido ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-accent/10 text-accent">
+              👤 Atendimento Humano
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-warning/10 text-warning">
+              🤖 Automação Ativa
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <button className="px-3 py-1.5 rounded-md text-xs font-medium bg-bg-surface-hover text-text-primary hover:bg-border">
             DELEGAR
@@ -257,8 +275,8 @@ export default function ChatCentral({ lead }: Props) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input area */}
-      <div className="px-4 py-3 border-t border-border bg-bg-surface relative">
+      {/* Input area — estilo WhatsApp */}
+      <div className="px-3 py-2 border-t border-border bg-bg-surface relative">
         {showQuickReplies && operadorId && (
           <QuickReplies
             query={quickReplyQuery}
@@ -272,10 +290,11 @@ export default function ChatCentral({ lead }: Props) {
           />
         )}
 
+        {/* Toggle nota interna */}
         <div className="flex items-center gap-2 mb-2">
           <button
             onClick={() => setIsNotaInterna(!isNotaInterna)}
-            className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
               isNotaInterna
                 ? 'bg-note-internal text-warning border border-warning/30'
                 : 'bg-bg-surface-hover text-text-secondary hover:bg-border'
@@ -285,19 +304,69 @@ export default function ChatCentral({ lead }: Props) {
           </button>
         </div>
 
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={(e) => handleInputChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={isNotaInterna ? 'Escreva uma nota interna...' : 'Digite uma mensagem ou / para respostas rápidas'}
-          rows={1}
-          className={`w-full rounded-md border px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 resize-none ${
-            isNotaInterna
-              ? 'bg-note-internal border-warning/30 focus:border-warning focus:ring-warning'
-              : 'bg-bg-primary border-border focus:border-accent focus:ring-accent'
-          }`}
-        />
+        {/* Barra de input com botões */}
+        <div className="flex items-end gap-2">
+          {/* Botão anexo */}
+          <button
+            type="button"
+            title="Anexar arquivo (em breve)"
+            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-text-muted hover:text-text-secondary hover:bg-bg-surface-hover transition-colors"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+            </svg>
+          </button>
+
+          {/* Campo de texto */}
+          <div className="flex-1 relative">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => handleInputChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={isNotaInterna ? 'Escreva uma nota interna...' : 'Digite uma mensagem ou / para atalhos'}
+              rows={1}
+              className={`w-full rounded-2xl border px-4 py-2 pr-10 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 resize-none max-h-32 ${
+                isNotaInterna
+                  ? 'bg-note-internal border-warning/30 focus:border-warning focus:ring-warning'
+                  : 'bg-bg-primary border-border focus:border-accent focus:ring-accent'
+              }`}
+              style={{ minHeight: '36px' }}
+              onInput={(e) => {
+                const target = e.target as HTMLTextAreaElement
+                target.style.height = '36px'
+                target.style.height = Math.min(target.scrollHeight, 128) + 'px'
+              }}
+            />
+          </div>
+
+          {/* Botão enviar OU botão áudio */}
+          {input.trim() ? (
+            <button
+              type="button"
+              onClick={handleSend}
+              title="Enviar mensagem"
+              className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-accent text-white hover:bg-accent/90 transition-colors"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="button"
+              title="Gravar áudio (em breve)"
+              className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-text-muted hover:text-text-secondary hover:bg-bg-surface-hover transition-colors"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                <path d="M19 10v2a7 7 0 01-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+                <line x1="8" y1="23" x2="16" y2="23" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Popup Enfileirar */}
