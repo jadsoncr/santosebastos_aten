@@ -98,6 +98,70 @@ app.post('/webhook', async (req, res) => {
     // Usar identity_id como chave de sessão, com legacy_id para migração lazy
     const sessAntes = await sessionManager.getSession(identity_id, canal, sessao);
 
+    // ── UPSERT IMEDIATO: criar lead ao primeiro "Oi" ──
+    try {
+      const db = getSupabase();
+      const { data: existingLead } = await db
+        .from('leads')
+        .select('id, is_assumido')
+        .eq('identity_id', identity_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!existingLead) {
+        // Primeiro contato — criar lead com status TRIAGEM
+        const { randomUUID: genUUID } = require('crypto');
+        await db.from('leads').insert({
+          identity_id,
+          request_id: genUUID(),
+          nome: null,
+          telefone: null,
+          canal_origem: channel,
+          channel_user_id,
+          status: 'TRIAGEM',
+          score: 0,
+          prioridade: 'FRIO',
+        });
+        // Broadcast pra sidebar atualizar
+        io.emit('lead_novo', { identity_id, channel_user_id });
+      } else {
+        // Atualizar channel_user_id e ultima_msg
+        await db.from('leads').update({
+          channel_user_id,
+          ultima_msg_de: channel_user_id,
+          ultima_msg_em: new Date().toISOString(),
+        }).eq('id', existingLead.id);
+
+        // ── SILENCIADOR: se humano assumiu, não processar pela stateMachine ──
+        if (existingLead.is_assumido) {
+          // Apenas salvar mensagem no banco, não chamar bot
+          await db.from('mensagens').insert({
+            lead_id: existingLead.id,
+            de: channel_user_id,
+            tipo: 'mensagem',
+            conteudo: mensagem,
+          });
+          io.emit('nova_mensagem_salva', {
+            lead_id: existingLead.id,
+            de: channel_user_id,
+            tipo: 'mensagem',
+            conteudo: mensagem,
+            created_at: new Date().toISOString(),
+          });
+
+          // Responder no Telegram que operador vai atender
+          if (isTelegram) {
+            await sendTelegram(tgMsg.chat.id, 'Um momento, nosso atendente está respondendo...');
+            return res.sendStatus(200);
+          }
+          return res.json({ message: 'Atendimento humano ativo.' });
+        }
+      }
+    } catch (upsertErr) {
+      console.error('[upsert_imediato]', upsertErr.message);
+    }
+
     const resultado = await processar(identity_id, mensagem, canal);
 
     // Incrementa contador de mensagens
@@ -294,7 +358,7 @@ const httpServer = http.createServer(app);
 
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.WEB_URL || 'http://localhost:3001',
+    origin: (process.env.WEB_URL || 'http://localhost:3001').split(',').map(u => u.trim()),
     methods: ['GET', 'POST'],
   },
 });
@@ -347,6 +411,9 @@ io.on('connection', (socket) => {
     // OUTBOUND: se mensagem do operador humano, enviar pro Telegram
     if (origem === 'humano' && tipo !== 'nota_interna' && lead_id) {
       try {
+        // Marcar lead como assumido por humano (silencia o bot)
+        await db.from('leads').update({ is_assumido: true, status_triagem: 'humano_assumiu' }).eq('id', lead_id);
+
         const { data: lead } = await db
           .from('leads')
           .select('channel_user_id, canal_origem')
@@ -356,7 +423,6 @@ io.on('connection', (socket) => {
         if (lead?.channel_user_id && lead.canal_origem === 'telegram') {
           await sendTelegram(lead.channel_user_id, conteudo);
         }
-        // WhatsApp outbound via n8n webhook (se configurado)
         if (lead?.channel_user_id && lead.canal_origem !== 'telegram' && process.env.WEBHOOK_N8N_URL) {
           await fetch(process.env.WEBHOOK_N8N_URL, {
             method: 'POST',
