@@ -67,21 +67,18 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
   }, [])
 
   const loadLeads = useCallback(async () => {
-    const [leadsRes, reaquecidosRes, clientsRes, othersRes, atendimentosRes] = await Promise.all([
+    const [leadsRes, reaquecidosRes, atendimentosRes] = await Promise.all([
       supabase.from('leads').select('*').eq('is_reaquecido', false).order('score', { ascending: false }),
       supabase.from('leads').select('*').eq('is_reaquecido', true).order('reaquecido_em', { ascending: false }),
-      supabase.from('clients').select('*').order('created_at', { ascending: false }),
-      supabase.from('others').select('*').order('created_at', { ascending: false }),
       supabase.from('atendimentos').select('lead_id, owner_id, status, prazo_sla, tipo_espera'),
     ])
 
     const atMap = new Map((atendimentosRes.data || []).map((a: any) => [a.lead_id, a]))
 
+    // Apenas leads — clients e others ficam na Tela 2
     const allLeads = [
       ...(reaquecidosRes.data || []).map((l: any) => ({ ...l, _tipo: 'reaquecido' })),
       ...(leadsRes.data || []).map((l: any) => ({ ...l, _tipo: 'lead' })),
-      ...(clientsRes.data || []).map((c: any) => ({ ...c, _tipo: 'cliente', score: 0, prioridade: 'MEDIO', area: 'cliente' })),
-      ...(othersRes.data || []).map((o: any) => ({ ...o, _tipo: 'outros', score: 0, prioridade: 'FRIO', area: 'outros' })),
     ]
 
     const urgList: LeadWithMeta[] = []
