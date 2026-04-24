@@ -1,6 +1,8 @@
 require('dotenv').config();
 
+const http = require('http');
 const express = require('express');
+const { Server } = require('socket.io');
 const normalize = require('./src/normalizer');
 const { process: processar } = require('./src/stateMachine');
 const { buildResponse } = require('./src/responder');
@@ -8,6 +10,7 @@ const sessionManager = require('./src/sessionManager');
 const { createAbandono } = require('./src/storage');
 const { resolveIdentity } = require('./src/identityResolver');
 const { ESTADOS_FINAIS } = require('./src/sessionManager');
+const { getSupabase } = require('./src/supabaseAdmin');
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
@@ -104,6 +107,52 @@ app.post('/webhook', async (req, res) => {
     });
     const resposta = buildResponse(resultado);
 
+    // ── Persistir mensagens na tabela mensagens ──────────────────────────
+    try {
+      const sessaoAtual = await sessionManager.getSession(identity_id);
+      if (sessaoAtual && sessaoAtual.leadId) {
+        const db = getSupabase();
+        // Mensagem recebida do lead
+        await db.from('mensagens').insert({
+          lead_id: sessaoAtual.leadId,
+          de: channel_user_id,
+          tipo: 'mensagem',
+          conteudo: mensagem,
+        });
+        // Resposta do bot
+        await db.from('mensagens').insert({
+          lead_id: sessaoAtual.leadId,
+          de: 'bot',
+          tipo: 'mensagem',
+          conteudo: resposta.message,
+        });
+        // Broadcast via Socket.io
+        io.emit('nova_mensagem_salva', {
+          lead_id: sessaoAtual.leadId,
+          de: channel_user_id,
+          tipo: 'mensagem',
+          conteudo: mensagem,
+          created_at: new Date().toISOString(),
+        });
+        io.emit('nova_mensagem_salva', {
+          lead_id: sessaoAtual.leadId,
+          de: 'bot',
+          tipo: 'mensagem',
+          conteudo: resposta.message,
+          created_at: new Date().toISOString(),
+        });
+      }
+    } catch (msgErr) {
+      // Falha de persistência de mensagem não bloqueia o fluxo
+      console.error(JSON.stringify({
+        level: 'warn',
+        msg: 'mensagem_persist_fail',
+        identity_id,
+        erro: msgErr.message,
+        ts: new Date().toISOString(),
+      }));
+    }
+
     if (isTelegram) {
       await sendTelegram(tgMsg.chat.id, resposta.message);
       return res.sendStatus(200);
@@ -167,8 +216,76 @@ app.get('/admin/sessions', adminAuth, async (_req, res) => {
 });
 
 
+// ─── HTTP Server + Socket.io ────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const httpServer = http.createServer(app);
+
+const io = new Server(httpServer, {
+  cors: {
+    origin: process.env.WEB_URL || 'http://localhost:3001',
+    methods: ['GET', 'POST'],
+  },
+});
+
+// ─── Socket.io handlers ────────────────────────────────────────────────────
+io.on('connection', (socket) => {
+  console.log(`[socket] conectado: ${socket.id}`);
+
+  // Assumir lead — atômico via UNIQUE(lead_id)
+  socket.on('assumir_lead', async ({ lead_id, operador_id }) => {
+    const db = getSupabase();
+    const { error } = await db
+      .from('atendimentos')
+      .insert({ lead_id, owner_id: operador_id, status: 'aberto' });
+
+    if (error) {
+      if (error.code === '23505') {
+        socket.emit('erro_assumir', { mensagem: 'Este lead já foi assumido por outro operador.' });
+        return;
+      }
+      socket.emit('erro_assumir', { mensagem: error.message });
+      return;
+    }
+    io.emit('lead_assumido', { lead_id, operador_id });
+  });
+
+  // Delegar lead
+  socket.on('delegar_lead', async ({ lead_id, operador_id_origem, operador_id_destino }) => {
+    const db = getSupabase();
+    await db
+      .from('atendimentos')
+      .update({ owner_id: operador_id_destino, delegado_de: operador_id_origem })
+      .eq('lead_id', lead_id);
+    io.emit('lead_delegado', { lead_id, operador_id_destino });
+  });
+
+  // Nova mensagem (do operador humano)
+  socket.on('nova_mensagem', async ({ lead_id, de, conteudo, tipo, operador_id, origem }) => {
+    const db = getSupabase();
+    const { data, error } = await db
+      .from('mensagens')
+      .insert({ lead_id, de, conteudo, tipo: tipo || 'mensagem', operador_id })
+      .select()
+      .single();
+
+    if (!error && data) {
+      io.emit('nova_mensagem_salva', data);
+    }
+    // origem === 'humano' → NÃO processar pela state machine
+  });
+
+  // Status do operador
+  socket.on('operador_status', ({ operador_id, status }) => {
+    io.emit('operador_status_atualizado', { operador_id, status });
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`[socket] desconectado: ${socket.id}`);
+  });
+});
+
+httpServer.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
   console.log(`Storage adapter: ${process.env.STORAGE_ADAPTER || 'memory'}`);
+  console.log(`Socket.io CORS: ${process.env.WEB_URL || 'http://localhost:3001'}`);
 });

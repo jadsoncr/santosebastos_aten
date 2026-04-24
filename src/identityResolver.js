@@ -7,20 +7,10 @@
 
 const { randomUUID } = require('crypto');
 const { getConfig } = require('./storage/config');
+const { getSupabase } = require('./supabaseAdmin');
 
 const config = getConfig();
 const useSupabase = config.adapter === 'supabase';
-
-// ─── Supabase client (lazy) ───────────────────────────────────────────────
-
-let supabase;
-function getSupabase() {
-  if (!supabase) {
-    const { createClient } = require('@supabase/supabase-js');
-    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-  }
-  return supabase;
-}
 
 // ─── In-memory stores (dev/test/sheets) ───────────────────────────────────
 
