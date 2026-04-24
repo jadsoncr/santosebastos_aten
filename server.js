@@ -128,10 +128,7 @@ app.post('/webhook', async (req, res) => {
       // Salvar channel_user_id no lead pra outbound
       if (leadId) {
         await db.from('leads').update({ channel_user_id }).eq('id', leadId);
-      }
-      }
 
-      if (leadId) {
         // ── Atualizar ultima_msg no lead ──
         await db.from('leads').update({
           ultima_msg_de: channel_user_id,
