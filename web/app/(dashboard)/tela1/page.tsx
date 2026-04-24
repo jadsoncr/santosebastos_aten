@@ -1,6 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { createClient } from '@/utils/supabase/client'
 import ConversasSidebar from './components/ConversasSidebar'
 import ChatCentral from './components/ChatCentral'
 import PainelLead from './components/PainelLead'
@@ -18,10 +20,23 @@ export interface Lead {
   created_at: string
   resumo: string | null
   corrigido: boolean
+  is_reaquecido?: boolean
 }
 
 export default function Tela1Page() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
+  const searchParams = useSearchParams()
+  const supabase = createClient()
+
+  // Handle ?lead=UUID from Tela 2 "Abrir no chat"
+  useEffect(() => {
+    const leadId = searchParams.get('lead')
+    if (leadId && !selectedLead) {
+      supabase.from('leads').select('*').eq('id', leadId).maybeSingle().then(({ data }) => {
+        if (data) setSelectedLead({ ...data, corrigido: data.corrigido ?? false })
+      })
+    }
+  }, [searchParams])
 
   const handleLeadClosed = () => {
     setSelectedLead(null)

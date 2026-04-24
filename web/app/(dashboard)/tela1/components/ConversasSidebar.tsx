@@ -55,9 +55,10 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
   }, [])
 
   const loadLeads = useCallback(async () => {
-    // Carregar leads, clients e others
-    const [leadsRes, clientsRes, othersRes] = await Promise.all([
-      supabase.from('leads').select('*').order('score', { ascending: false }),
+    // Carregar leads (incluindo reaquecidos), clients e others
+    const [leadsRes, reaquecidosRes, clientsRes, othersRes] = await Promise.all([
+      supabase.from('leads').select('*').eq('is_reaquecido', false).order('score', { ascending: false }),
+      supabase.from('leads').select('*').eq('is_reaquecido', true).order('reaquecido_em', { ascending: false }),
       supabase.from('clients').select('*').order('created_at', { ascending: false }),
       supabase.from('others').select('*').order('created_at', { ascending: false }),
     ])
@@ -66,8 +67,9 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
       console.error('[ConversasSidebar] erro ao carregar leads:', leadsRes.error.message)
     }
 
-    // Combinar todas as entradas
+    // Combinar: reaquecidos no topo (urgentes), depois leads normais, depois clients/others
     const allEntries = [
+      ...(reaquecidosRes.data || []).map((l: any) => ({ ...l, _tipo: 'reaquecido' })),
       ...(leadsRes.data || []).map((l: any) => ({ ...l, _tipo: 'lead' })),
       ...(clientsRes.data || []).map((c: any) => ({ ...c, _tipo: 'cliente', score: 0, prioridade: 'MEDIO', area: 'cliente' })),
       ...(othersRes.data || []).map((o: any) => ({ ...o, _tipo: 'outros', score: 0, prioridade: 'FRIO', area: 'outros' })),
@@ -139,10 +141,17 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
     }
     socket.on('lead_encerrado', handleLeadEncerrado)
 
+    // Lead reaquecido — adiciona ao topo da fila
+    const handleLeadReaquecido = ({ lead_id }: { lead_id: string }) => {
+      loadLeads() // reload pra pegar o lead reaquecido
+    }
+    socket.on('lead_reaquecido', handleLeadReaquecido)
+
     return () => {
       socket.off('lead_assumido', handleLeadAssumido)
       socket.off('nova_mensagem_salva', handleNovaMensagem)
       socket.off('lead_encerrado', handleLeadEncerrado)
+      socket.off('lead_reaquecido', handleLeadReaquecido)
     }
   }, [socket, selectedLeadId])
 
@@ -195,6 +204,9 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
                     <span className="text-sm font-medium text-text-primary truncate">
                       {lead.nome || lead.telefone || 'Lead'}
                     </span>
+                    {(lead as any)._tipo === 'reaquecido' && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-score-hot/10 text-score-hot font-medium">🔥</span>
+                    )}
                     <span className="text-xs font-mono text-text-muted shrink-0 ml-2">
                       {timeAgo(lead.created_at)}
                     </span>

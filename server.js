@@ -112,6 +112,28 @@ app.post('/webhook', async (req, res) => {
       const sessaoAtual = await sessionManager.getSession(identity_id);
       if (sessaoAtual && sessaoAtual.leadId) {
         const db = getSupabase();
+
+        // ── Reentrada: checar se lead já tem atendimento encerrado ──
+        const { data: atExistente } = await db
+          .from('atendimentos')
+          .select('status')
+          .eq('lead_id', sessaoAtual.leadId)
+          .in('status', ['convertido', 'nao_fechou', 'enfileirado'])
+          .maybeSingle();
+
+        if (atExistente) {
+          // Lead reaquecido — marcar flag sem mudar status do atendimento
+          await db.from('leads').update({
+            is_reaquecido: true,
+            reaquecido_em: new Date().toISOString(),
+          }).eq('id', sessaoAtual.leadId);
+
+          io.emit('lead_reaquecido', {
+            lead_id: sessaoAtual.leadId,
+            status_anterior: atExistente.status,
+          });
+        }
+
         // Mensagem recebida do lead
         await db.from('mensagens').insert({
           lead_id: sessaoAtual.leadId,

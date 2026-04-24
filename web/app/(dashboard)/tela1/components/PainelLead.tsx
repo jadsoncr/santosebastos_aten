@@ -255,6 +255,17 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
             className="w-full py-2 rounded-md text-sm font-medium bg-success/10 text-success hover:bg-success/20"
           >Chamar no WA</button>
         )}
+
+        {/* Arquivar Interação — para leads reaquecidos (clientes que voltaram) */}
+        {(lead as any).is_reaquecido && (
+          <button onClick={async () => {
+            await supabase.from('leads').update({ is_reaquecido: false }).eq('id', lead.id)
+            if (socket) socket.emit('lead_encerrado', { lead_id: lead.id, tipo: 'arquivado' })
+            onLeadClosed()
+          }}
+            className="w-full py-2 rounded-md text-sm font-medium bg-bg-surface-hover text-text-secondary hover:bg-border"
+          >📁 Arquivar interação</button>
+        )}
       </div>
 
       {/* Popup Motivo (NÃO FECHOU) */}
