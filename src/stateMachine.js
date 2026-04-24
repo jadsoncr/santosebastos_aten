@@ -93,18 +93,52 @@ async function persistirFluxo(sessao) {
 
   try {
     if (s.fluxo === 'cliente') {
-      await storage.createClient({
-        leadId,
-        request_id,
-        identity_id: sessao,
-        nome: s.clienteId || s.nome,
-        telefone: s.telefoneContato || s.canalOrigem || null,
-        canalOrigem: s.canalOrigem,
-        conteudo: s.clienteId,
-        urgencia: s.flagAtencao ? 'QUENTE' : 'MEDIO',
-        flagAtencao: s.flagAtencao,
-        status: 'NOVO',
-      });
+      // ── FILTRO DE REALIDADE: checar se realmente é cliente ──
+      let isRealClient = false;
+      try {
+        const { getSupabase } = require('./supabaseAdmin');
+        const db = getSupabase();
+        const { data: clienteExistente } = await db
+          .from('clients')
+          .select('id')
+          .eq('identity_id', sessao)
+          .maybeSingle();
+
+        if (clienteExistente) {
+          // É cliente real — atualizar last_interaction, não criar novo registro
+          isRealClient = true;
+          await db.from('clients').update({ last_interaction: new Date().toISOString() }).eq('id', clienteExistente.id);
+          // Marcar como reaquecido pra aparecer na Tela 1
+          if (existingLeadId) {
+            await db.from('leads').update({ is_reaquecido: true, reaquecido_em: new Date().toISOString() }).eq('id', existingLeadId);
+          }
+          return;
+        }
+      } catch (_) {}
+
+      if (!isRealClient) {
+        // NÃO é cliente real — salvar como LEAD com tag de revisão
+        await storage.createLead({
+          leadId,
+          request_id,
+          identity_id: sessao,
+          nome: s.clienteId || s.nome,
+          telefone: s.telefoneContato || s.canalOrigem || null,
+          area: 'cliente',
+          score: 5,
+          prioridade: 'QUENTE',
+          flagAtencao: true,
+          canalOrigem: s.canalOrigem,
+          status: 'NOVO',
+          metadata: JSON.stringify({ status_alegado: 'cliente_nao_encontrado' }),
+        });
+        // Marcar status_alegado no banco
+        try {
+          const { getSupabase } = require('./supabaseAdmin');
+          const db = getSupabase();
+          await db.from('leads').update({ status_alegado: 'cliente_nao_encontrado' }).eq('id', leadId);
+        } catch (_) {}
+      }
       return;
     }
 

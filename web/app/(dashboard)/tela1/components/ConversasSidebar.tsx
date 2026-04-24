@@ -67,17 +67,20 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
   }, [])
 
   const loadLeads = useCallback(async () => {
-    const [leadsRes, reaquecidosRes, atendimentosRes] = await Promise.all([
+    const ontem = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+
+    const [leadsRes, reaquecidosRes, clientesReaquecidosRes, atendimentosRes] = await Promise.all([
       supabase.from('leads').select('*').eq('is_reaquecido', false).order('score', { ascending: false }),
       supabase.from('leads').select('*').eq('is_reaquecido', true).order('reaquecido_em', { ascending: false }),
+      supabase.from('clients').select('*').gte('last_interaction', ontem).order('last_interaction', { ascending: false }),
       supabase.from('atendimentos').select('lead_id, owner_id, status, prazo_sla, tipo_espera'),
     ])
 
     const atMap = new Map((atendimentosRes.data || []).map((a: any) => [a.lead_id, a]))
 
-    // Apenas leads — clients e others ficam na Tela 2
     const allLeads = [
       ...(reaquecidosRes.data || []).map((l: any) => ({ ...l, _tipo: 'reaquecido' })),
+      ...(clientesReaquecidosRes.data || []).map((c: any) => ({ ...c, _tipo: 'cliente_reaquecido', score: 0, prioridade: 'MEDIO', area: 'cliente' })),
       ...(leadsRes.data || []).map((l: any) => ({ ...l, _tipo: 'lead' })),
     ]
 
@@ -164,6 +167,8 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
             <div className="flex items-center gap-1">
               <span className="text-sm font-medium text-text-primary truncate">{lead.nome || displayPhone(lead.telefone) || 'Lead'}</span>
               {lead._tipo === 'reaquecido' && <span className="text-xs">🔥</span>}
+              {lead._tipo === 'cliente_reaquecido' && <span className="text-xs px-1 py-0.5 rounded bg-success/10 text-success">👤</span>}
+              {(lead as any).status_alegado === 'cliente_nao_encontrado' && <span className="text-xs px-1 py-0.5 rounded bg-warning/10 text-warning">⚠️</span>}
               {slaVencido && <span className="text-xs px-1 py-0.5 rounded bg-warning/10 text-warning font-mono">⏰</span>}
             </div>
             <div className="flex items-center gap-1 mt-0.5">
