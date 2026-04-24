@@ -132,17 +132,36 @@ export default function DetailPanel({ lead }: Props) {
         ))}
       </div>
 
-      {/* Atendimentos */}
+      {/* Atendimentos + Timeline */}
       {atendimentos.length > 0 && (
         <div className="border-t border-border pt-3">
-          <h3 className="text-xs font-medium text-text-muted uppercase mb-2">Histórico</h3>
-          {atendimentos.map(at => (
-            <div key={at.id} className="text-xs text-text-secondary mb-1">
-              <span className="font-mono">{new Date(at.assumido_em).toLocaleDateString('pt-BR')}</span>
-              {' — '}
-              <span className={at.status === 'convertido' ? 'text-success' : ''}>{at.status}</span>
+          <h3 className="text-xs font-medium text-text-muted uppercase mb-2">Timeline</h3>
+          <div className="space-y-2 relative before:absolute before:left-2 before:top-0 before:bottom-0 before:w-px before:bg-border">
+            {/* Entrada */}
+            <div className="flex items-start gap-2 pl-5 relative">
+              <span className="absolute left-0.5 top-1 w-3 h-3 rounded-full bg-accent" />
+              <div>
+                <span className="text-xs font-medium text-text-primary">Entrada (Bot)</span>
+                <span className="text-xs text-text-muted block">{new Date(lead.created_at).toLocaleDateString('pt-BR')}</span>
+              </div>
             </div>
-          ))}
+            {/* Atendimentos */}
+            {atendimentos.map(at => (
+              <div key={at.id} className="flex items-start gap-2 pl-5 relative">
+                <span className={`absolute left-0.5 top-1 w-3 h-3 rounded-full ${
+                  at.status === 'convertido' ? 'bg-success' :
+                  at.status === 'nao_fechou' ? 'bg-error' :
+                  at.status === 'aguardando' ? 'bg-warning' :
+                  'bg-accent'
+                }`} />
+                <div>
+                  <span className="text-xs font-medium text-text-primary capitalize">{at.status.replace('_', ' ')}</span>
+                  <span className="text-xs text-text-muted block">{new Date(at.assumido_em).toLocaleDateString('pt-BR')}</span>
+                  {at.encerrado_em && <span className="text-xs text-text-muted block">Encerrado: {new Date(at.encerrado_em).toLocaleDateString('pt-BR')}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

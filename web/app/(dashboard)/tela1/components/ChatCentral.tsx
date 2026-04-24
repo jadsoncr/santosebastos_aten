@@ -5,6 +5,7 @@ import { createClient } from '@/utils/supabase/client'
 import { useSocket } from '@/components/providers/SocketProvider'
 import QuickReplies from './QuickReplies'
 import PopupEnfileirar from './PopupEnfileirar'
+import PopupAguardando from './PopupAguardando'
 import type { Lead } from '../page'
 
 interface Mensagem {
@@ -28,6 +29,7 @@ export default function ChatCentral({ lead }: Props) {
   const [showQuickReplies, setShowQuickReplies] = useState(false)
   const [quickReplyQuery, setQuickReplyQuery] = useState('')
   const [showEnfileirar, setShowEnfileirar] = useState(false)
+  const [showAguardando, setShowAguardando] = useState(false)
   const [operadorId, setOperadorId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -166,7 +168,7 @@ export default function ChatCentral({ lead }: Props) {
           <button className="px-3 py-1.5 rounded-md text-xs font-medium bg-bg-surface-hover text-text-primary hover:bg-border">
             DELEGAR
           </button>
-          <button className="px-3 py-1.5 rounded-md text-xs font-medium bg-warning/10 text-warning hover:bg-warning/20">
+          <button onClick={() => setShowAguardando(true)} className="px-3 py-1.5 rounded-md text-xs font-medium bg-warning/10 text-warning hover:bg-warning/20">
             AGUARDANDO
           </button>
           <button
@@ -268,6 +270,16 @@ export default function ChatCentral({ lead }: Props) {
           operadorId={operadorId}
           onClose={() => setShowEnfileirar(false)}
           onSuccess={() => setShowEnfileirar(false)}
+        />
+      )}
+
+      {/* Popup Aguardando */}
+      {showAguardando && operadorId && (
+        <PopupAguardando
+          leadId={lead.id}
+          operadorId={operadorId}
+          onClose={() => setShowAguardando(false)}
+          onSuccess={() => setShowAguardando(false)}
         />
       )}
     </div>

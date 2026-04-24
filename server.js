@@ -118,7 +118,7 @@ app.post('/webhook', async (req, res) => {
           .from('atendimentos')
           .select('status')
           .eq('lead_id', sessaoAtual.leadId)
-          .in('status', ['convertido', 'nao_fechou', 'enfileirado'])
+          .in('status', ['convertido', 'nao_fechou', 'enfileirado', 'aguardando'])
           .maybeSingle();
 
         if (atExistente) {

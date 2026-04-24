@@ -227,6 +227,17 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         ))}
       </div>
 
+      {/* Mensagem de cobrança */}
+      <div className="border-t border-border pt-3">
+        <button onClick={() => {
+          const msg = `Olá ${lead.nome || 'cliente'}, para mantermos a condição e agilidade no seu caso de ${areaHumano || lead.area || 'atendimento'}, precisamos da documentação pendente. Consegue nos enviar agora?`
+          navigator.clipboard.writeText(msg)
+          alert('Mensagem copiada!')
+        }}
+          className="w-full py-2 rounded-md text-xs font-medium bg-bg-surface-hover text-text-secondary hover:bg-border"
+        >📋 Copiar mensagem de cobrança</button>
+      </div>
+
       {/* Valor estimado */}
       <div className="border-t border-border pt-3">
         <span className="text-xs text-text-muted block mb-1">Valor estimado (R$)</span>
