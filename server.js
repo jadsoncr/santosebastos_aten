@@ -87,6 +87,8 @@ app.post('/webhook', async (req, res) => {
     try {
       identity_id = await resolveIdentity(channel, channel_user_id, telefone);
     } catch (err) {
+      // TODO: remover stack após debug
+      console.error('[IDENTITY_FAIL]', err.message, err.stack);
       console.error(JSON.stringify({
         level: 'error',
         msg: 'identity_resolve_fail',
