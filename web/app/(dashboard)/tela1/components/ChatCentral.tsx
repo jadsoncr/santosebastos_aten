@@ -159,12 +159,6 @@ export default function ChatCentral({ lead }: Props) {
           {lead.nome || lead.telefone || 'Lead'}
         </span>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleAssumir}
-            className="px-3 py-1.5 rounded-md text-xs font-medium bg-accent text-text-on-accent hover:bg-accent-hover"
-          >
-            ASSUMIR
-          </button>
           <button className="px-3 py-1.5 rounded-md text-xs font-medium bg-bg-surface-hover text-text-primary hover:bg-border">
             DELEGAR
           </button>

@@ -129,11 +129,13 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
     socket.on('nova_mensagem_salva', reload)
     socket.on('lead_encerrado', reload)
     socket.on('lead_reaquecido', reload)
+    socket.on('lead_status_changed', reload)
     return () => {
       socket.off('lead_assumido', reload)
       socket.off('nova_mensagem_salva', reload)
       socket.off('lead_encerrado', reload)
       socket.off('lead_reaquecido', reload)
+      socket.off('lead_status_changed', reload)
     }
   }, [socket, loadLeads])
 
@@ -167,6 +169,11 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
               {slaVencido && <span className="text-xs px-1 py-0.5 rounded bg-warning/10 text-warning font-mono">⏰</span>}
             </div>
             <div className="flex items-center gap-1 mt-0.5">
+              {lead.canal_origem && (
+                <span className={`text-xs px-1 py-0.5 rounded ${lead.canal_origem === 'telegram' ? 'bg-accent/10 text-accent' : 'bg-success/10 text-success'}`}>
+                  {lead.canal_origem === 'telegram' ? 'TG' : 'WA'}
+                </span>
+              )}
               <span className="text-xs text-text-muted truncate">{lead.area || '—'}</span>
               <span className="text-xs font-mono text-text-muted">· {lead.score}pts</span>
               <span className="text-xs font-mono text-text-muted ml-auto">{timeAgo(lead.created_at)}</span>
@@ -190,20 +197,20 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
   return (
     <div className="w-[280px] h-full bg-sidebar-bg overflow-y-auto flex flex-col">
       <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-        <span className="text-sm font-medium text-text-primary">Atendimento</span>
+        <span className="text-sm font-medium text-text-primary">Operação Ativa</span>
         <span className="bg-accent/10 text-accent text-xs font-mono font-medium px-2 py-0.5 rounded-full">{total}</span>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <SectionHeader label="URGENTE / NOVOS" count={urgentes.length} color="text-error" section="urgente" />
+        <SectionHeader label="🔥 PRIORIDADE MÁXIMA" count={urgentes.length} color="text-error" section="urgente" />
         {!collapsed.urgente && urgentes.map(renderLeadItem)}
         {!collapsed.urgente && urgentes.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">Nenhum lead urgente</p>}
 
-        <SectionHeader label="EM ATENDIMENTO" count={emAtendimento.length} color="text-accent" section="emCurso" />
+        <SectionHeader label="💬 EM CURSO" count={emAtendimento.length} color="text-accent" section="emCurso" />
         {!collapsed.emCurso && emAtendimento.map(renderLeadItem)}
         {!collapsed.emCurso && emAtendimento.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">Nenhum em curso</p>}
 
-        <SectionHeader label="AGUARDANDO" count={aguardando.length} color="text-warning" section="aguardando" />
+        <SectionHeader label="⏳ EM PAUSA" count={aguardando.length} color="text-warning" section="aguardando" />
         {!collapsed.aguardando && aguardando.map(renderLeadItem)}
         {!collapsed.aguardando && aguardando.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">Nenhum aguardando</p>}
       </div>

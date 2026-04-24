@@ -180,6 +180,13 @@ export default function DetailPanel({ lead }: Props) {
 
       {/* Actions */}
       <div className="border-t border-border pt-3 space-y-2">
+        <button onClick={() => {
+          const msg = `Olá ${lead.nome || 'cliente'}, para mantermos a condição e agilidade no seu caso de ${lead.area || 'atendimento'}, precisamos da documentação pendente. Consegue nos enviar agora?`
+          navigator.clipboard.writeText(msg)
+          alert('Mensagem copiada!')
+        }}
+          className="w-full py-2 rounded-md text-xs font-medium bg-bg-surface-hover text-text-secondary hover:bg-border"
+        >📋 Copiar mensagem de cobrança</button>
         <button
           onClick={handleAbrirChat}
           className="w-full py-2 rounded-md text-sm font-medium bg-accent text-text-on-accent hover:bg-accent-hover"

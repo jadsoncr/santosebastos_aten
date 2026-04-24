@@ -113,7 +113,30 @@ app.post('/webhook', async (req, res) => {
       if (sessaoAtual && sessaoAtual.leadId) {
         const db = getSupabase();
 
-        // ── Reentrada: checar se lead já tem atendimento encerrado ──
+        // ── Atualizar ultima_msg no lead ──
+        await db.from('leads').update({
+          ultima_msg_de: channel_user_id,
+          ultima_msg_em: new Date().toISOString(),
+        }).eq('id', sessaoAtual.leadId);
+
+        // ── Reentrada: checar se lead está em pausa, fechado ou encerrado ──
+        const { data: leadAtual } = await db
+          .from('leads')
+          .select('status_operacao, is_reaquecido')
+          .eq('id', sessaoAtual.leadId)
+          .maybeSingle();
+
+        if (leadAtual && ['em_pausa', 'fechado'].includes(leadAtual.status_operacao)) {
+          // Lead voltou — reativar como prioridade máxima
+          await db.from('leads').update({
+            status_operacao: 'ativo',
+            is_reaquecido: true,
+            reaquecido_em: new Date().toISOString(),
+          }).eq('id', sessaoAtual.leadId);
+          io.emit('lead_reaquecido', { lead_id: sessaoAtual.leadId, status_anterior: leadAtual.status_operacao });
+        }
+
+        // ── Reentrada clássica: atendimento encerrado ──
         const { data: atExistente } = await db
           .from('atendimentos')
           .select('status')
@@ -310,6 +333,84 @@ io.on('connection', (socket) => {
     console.log(`[socket] desconectado: ${socket.id}`);
   });
 });
+
+// ─── Sweep: Motor de Estados Automáticos ────────────────────────────────────
+// Roda a cada 5 minutos no servidor. Garante consistência mesmo com browser fechado.
+const SWEEP_INTERVAL = 5 * 60 * 1000; // 5 min
+const SNOOZE_THRESHOLD = 30 * 60 * 1000; // 30 min
+const ABANDONO_TRIAGEM = 2 * 60 * 60 * 1000; // 2h
+const ABANDONO_ATENDIMENTO = 24 * 60 * 60 * 1000; // 24h
+
+async function sweepOperacao() {
+  const db = getSupabase();
+  const agora = new Date();
+
+  try {
+    // 1. Auto-Snooze: última msg do operador, cliente não respondeu em 30min
+    const { data: leadsAtivos } = await db
+      .from('leads')
+      .select('id, ultima_msg_de, ultima_msg_em')
+      .eq('status_operacao', 'ativo')
+      .not('ultima_msg_em', 'is', null);
+
+    if (leadsAtivos) {
+      for (const lead of leadsAtivos) {
+        if (!lead.ultima_msg_em) continue;
+        const diff = agora.getTime() - new Date(lead.ultima_msg_em).getTime();
+        // Se última msg foi do operador/bot e cliente não respondeu em 30min
+        if (lead.ultima_msg_de !== 'lead' && diff > SNOOZE_THRESHOLD) {
+          await db.from('leads').update({ status_operacao: 'em_pausa' }).eq('id', lead.id);
+          io.emit('lead_status_changed', { lead_id: lead.id, status: 'em_pausa' });
+        }
+      }
+    }
+
+    // 2. Abandono de Triagem: leads novos parados 2h sem atendimento humano
+    const limiteTriagem = new Date(agora.getTime() - ABANDONO_TRIAGEM).toISOString();
+    const { data: leadsTriagem } = await db
+      .from('leads')
+      .select('id')
+      .eq('status_operacao', 'novo')
+      .lt('created_at', limiteTriagem);
+
+    if (leadsTriagem) {
+      for (const lead of leadsTriagem) {
+        await db.from('leads').update({ status_operacao: 'fechado' }).eq('id', lead.id);
+        await db.from('atendimentos').update({
+          status: 'fechado',
+          motivo_fechamento: 'abandono_triagem',
+          encerrado_em: agora.toISOString(),
+        }).eq('lead_id', lead.id);
+        io.emit('lead_status_changed', { lead_id: lead.id, status: 'fechado' });
+      }
+    }
+
+    // 3. Abandono de Atendimento: leads com humano sem resposta 24h
+    const limiteAtendimento = new Date(agora.getTime() - ABANDONO_ATENDIMENTO).toISOString();
+    const { data: leadsAbandono } = await db
+      .from('leads')
+      .select('id, ultima_msg_em')
+      .in('status_operacao', ['ativo', 'em_pausa'])
+      .lt('ultima_msg_em', limiteAtendimento);
+
+    if (leadsAbandono) {
+      for (const lead of leadsAbandono) {
+        await db.from('leads').update({ status_operacao: 'fechado' }).eq('id', lead.id);
+        await db.from('atendimentos').update({
+          status: 'fechado',
+          motivo_fechamento: 'abandono_atendimento',
+          encerrado_em: agora.toISOString(),
+        }).eq('lead_id', lead.id);
+        io.emit('lead_status_changed', { lead_id: lead.id, status: 'fechado' });
+      }
+    }
+  } catch (err) {
+    console.error('[sweep] erro:', err.message);
+  }
+}
+
+const _sweepOp = setInterval(sweepOperacao, SWEEP_INTERVAL);
+if (_sweepOp.unref) _sweepOp.unref();
 
 httpServer.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
