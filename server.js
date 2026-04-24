@@ -279,6 +279,11 @@ io.on('connection', (socket) => {
     io.emit('operador_status_atualizado', { operador_id, status });
   });
 
+  // Lead encerrado — broadcast para remover da fila de todos
+  socket.on('lead_encerrado', ({ lead_id, tipo }) => {
+    io.emit('lead_encerrado', { lead_id, tipo });
+  });
+
   socket.on('disconnect', () => {
     console.log(`[socket] desconectado: ${socket.id}`);
   });

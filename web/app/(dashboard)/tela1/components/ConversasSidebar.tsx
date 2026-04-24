@@ -43,23 +43,38 @@ function getPriorityStyle(score: number) {
 
 export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props) {
   const [leads, setLeads] = useState<LeadWithPreview[]>([])
+  const [operadorId, setOperadorId] = useState<string | null>(null)
   const socket = useSocket()
   const supabase = createClient()
 
-  const loadLeads = useCallback(async () => {
-    // Carregar todos os leads, depois filtrar os que não têm atendimento
-    const { data, error } = await supabase
-      .from('leads')
-      .select('*')
-      .order('score', { ascending: false })
+  // Get current user for auto-attribution
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) setOperadorId(data.user.id)
+    })
+  }, [])
 
-    if (error) {
-      console.error('[ConversasSidebar] erro ao carregar leads:', error.message)
-      return
+  const loadLeads = useCallback(async () => {
+    // Carregar leads, clients e others
+    const [leadsRes, clientsRes, othersRes] = await Promise.all([
+      supabase.from('leads').select('*').order('score', { ascending: false }),
+      supabase.from('clients').select('*').order('created_at', { ascending: false }),
+      supabase.from('others').select('*').order('created_at', { ascending: false }),
+    ])
+
+    if (leadsRes.error) {
+      console.error('[ConversasSidebar] erro ao carregar leads:', leadsRes.error.message)
     }
 
-    if (!data || data.length === 0) {
-      console.log('[ConversasSidebar] nenhum lead encontrado na tabela')
+    // Combinar todas as entradas
+    const allEntries = [
+      ...(leadsRes.data || []).map((l: any) => ({ ...l, _tipo: 'lead' })),
+      ...(clientsRes.data || []).map((c: any) => ({ ...c, _tipo: 'cliente', score: 0, prioridade: 'MEDIO', area: 'cliente' })),
+      ...(othersRes.data || []).map((o: any) => ({ ...o, _tipo: 'outros', score: 0, prioridade: 'FRIO', area: 'outros' })),
+    ]
+
+    if (allEntries.length === 0) {
+      console.log('[ConversasSidebar] nenhuma entrada encontrada')
       setLeads([])
       return
     }
@@ -71,8 +86,10 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
 
     const assumidos = new Set((atendimentos || []).map(a => a.lead_id))
 
-    // Filtrar leads não assumidos
-    const naoAssumidos = data.filter((l: any) => !assumidos.has(l.id))
+    // Filtrar não assumidos e ordenar por score
+    const naoAssumidos = allEntries
+      .filter((l: any) => !assumidos.has(l.id))
+      .sort((a: any, b: any) => (b.score || 0) - (a.score || 0))
 
     if (naoAssumidos.length > 0) {
       setLeads(naoAssumidos.map((l: any) => ({
@@ -116,9 +133,16 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
     socket.on('lead_assumido', handleLeadAssumido)
     socket.on('nova_mensagem_salva', handleNovaMensagem)
 
+    // Lead encerrado — remove da fila de todos
+    const handleLeadEncerrado = ({ lead_id }: { lead_id: string }) => {
+      setLeads(prev => prev.filter(l => l.id !== lead_id))
+    }
+    socket.on('lead_encerrado', handleLeadEncerrado)
+
     return () => {
       socket.off('lead_assumido', handleLeadAssumido)
       socket.off('nova_mensagem_salva', handleNovaMensagem)
+      socket.off('lead_encerrado', handleLeadEncerrado)
     }
   }, [socket, selectedLeadId])
 
@@ -150,6 +174,10 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
                 setLeads(prev =>
                   prev.map(l => l.id === lead.id ? { ...l, unread: false } : l)
                 )
+                // Auto-atribuição: se lead é NOVO e socket disponível, assumir automaticamente
+                if (socket && operadorId) {
+                  socket.emit('assumir_lead', { lead_id: lead.id, operador_id: operadorId })
+                }
               }}
               className={`px-4 py-3 cursor-pointer border-b border-border transition-colors ${
                 isSelected ? 'bg-bg-surface-hover' : 'hover:bg-bg-surface-hover'

@@ -23,6 +23,10 @@ export interface Lead {
 export default function Tela1Page() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
 
+  const handleLeadClosed = () => {
+    setSelectedLead(null)
+  }
+
   return (
     <div className="flex h-full -m-6">
       <ConversasSidebar
@@ -32,7 +36,7 @@ export default function Tela1Page() {
       <div className="flex-1 border-x border-border">
         <ChatCentral lead={selectedLead} />
       </div>
-      <PainelLead lead={selectedLead} onLeadUpdate={setSelectedLead} />
+      <PainelLead lead={selectedLead} onLeadUpdate={setSelectedLead} onLeadClosed={handleLeadClosed} />
     </div>
   )
 }

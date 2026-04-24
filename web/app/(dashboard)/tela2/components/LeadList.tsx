@@ -41,20 +41,43 @@ export default function LeadList({ filters, selectedLeadId, onSelectLead }: Prop
   const supabase = createClient()
 
   const loadLeads = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('leads')
-      .select('*')
-      .order('score', { ascending: false })
+    const [leadsRes, clientsRes, othersRes, abandonosRes, potRes] = await Promise.all([
+      supabase.from('leads').select('*').order('score', { ascending: false }),
+      supabase.from('clients').select('*').order('created_at', { ascending: false }),
+      supabase.from('others').select('*').order('created_at', { ascending: false }),
+      supabase.from('abandonos').select('*').order('created_at', { ascending: false }),
+      supabase.from('pot_tratamento').select('lead_id').eq('status', 'ativo'),
+    ])
 
-    if (error) {
-      console.error('[LeadList] erro ao carregar leads:', error.message)
-      return
+    if (leadsRes.error) {
+      console.error('[LeadList] erro ao carregar leads:', leadsRes.error.message)
     }
 
-    console.log('[LeadList] leads carregados:', data?.length || 0)
+    const potLeadIds = new Set((potRes.data || []).map((p: any) => p.lead_id))
 
-    if (data) {
-      setLeads(data.map((l: any) => ({
+    const allEntries = [
+      ...(leadsRes.data || []).map((l: any) => ({
+        ...l,
+        _tipo: potLeadIds.has(l.id) ? 'pot' : 'lead',
+      })),
+      ...(clientsRes.data || []).map((c: any) => ({ ...c, _tipo: 'cliente', score: 0, prioridade: 'MEDIO', area: 'cliente' })),
+      ...(othersRes.data || []).map((o: any) => ({ ...o, _tipo: 'outros', score: 0, prioridade: 'FRIO', area: 'outros' })),
+      ...(abandonosRes.data || []).map((a: any) => ({
+        ...a,
+        _tipo: 'abandono',
+        nome: a.nome || 'Abandono',
+        score: a.score || 0,
+        prioridade: a.prioridade || 'FRIO',
+        area: a.fluxo || 'abandono',
+        telefone: null,
+        canal_origem: a.canal_origem,
+      })),
+    ].sort((a: any, b: any) => (b.score || 0) - (a.score || 0))
+
+    console.log('[LeadList] entradas carregadas:', allEntries.length)
+
+    if (allEntries) {
+      setLeads(allEntries.map((l: any) => ({
         ...l,
         corrigido: l.corrigido ?? false,
         status: l.status || 'NOVO',
@@ -73,6 +96,26 @@ export default function LeadList({ filters, selectedLeadId, onSelectLead }: Prop
 
   // Apply filters
   let filtered = leads
+
+  // Status filter
+  if (filters.status) {
+    filtered = filtered.filter(l => {
+      const tipo = (l as any)._tipo
+      switch (filters.status) {
+        case 'recebidos': return tipo === 'lead' || tipo === 'cliente'
+        case 'desprezados': return tipo === 'outros' || tipo === 'abandono' || l.score < 4
+        case 'potAtivo': return tipo === 'pot'
+        default: return true
+      }
+    })
+  } else {
+    // Por padrão, esconder desprezados e abandonos
+    filtered = filtered.filter(l => {
+      const tipo = (l as any)._tipo
+      return tipo !== 'abandono'
+    })
+  }
+
   if (filters.prioridade) {
     filtered = filtered.filter(l => {
       if (filters.prioridade === 'QUENTE') return l.score >= 7

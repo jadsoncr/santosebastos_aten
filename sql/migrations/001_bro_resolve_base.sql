@@ -133,7 +133,7 @@ ALTER TABLE identities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE identity_channels ENABLE ROW LEVEL SECURITY;
 
 -- Políticas para tabelas existentes (leitura para authenticated)
-DO $
+DO $$
 BEGIN
   -- leads
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'leads' AND policyname = 'service_role_full_leads') THEN
@@ -177,4 +177,4 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'identity_channels' AND policyname = 'authenticated_read_identity_channels') THEN
     EXECUTE 'CREATE POLICY "authenticated_read_identity_channels" ON identity_channels FOR SELECT TO authenticated USING (true)';
   END IF;
-END $;
+END $$;

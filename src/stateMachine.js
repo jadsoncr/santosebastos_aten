@@ -81,7 +81,7 @@ async function persistirFluxo(sessao) {
         request_id,
         identity_id: sessao,
         nome: s.clienteId || s.nome,
-        telefone: s.sessao,
+        telefone: s.telefoneContato || s.canalOrigem || null,
         canalOrigem: s.canalOrigem,
         conteudo: s.clienteId,
         urgencia: s.flagAtencao ? 'QUENTE' : 'MEDIO',
