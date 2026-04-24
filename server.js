@@ -110,20 +110,33 @@ app.post('/webhook', async (req, res) => {
     // ── Persistir mensagens na tabela mensagens ──────────────────────────
     try {
       const sessaoAtual = await sessionManager.getSession(identity_id);
-      if (sessaoAtual && sessaoAtual.leadId) {
-        const db = getSupabase();
+      const db = getSupabase();
 
+      // Encontrar lead_id: da sessão ou buscar no banco por identity_id
+      let leadId = sessaoAtual?.leadId;
+      if (!leadId) {
+        const { data: existingLead } = await db
+          .from('leads')
+          .select('id')
+          .eq('identity_id', identity_id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        leadId = existingLead?.id;
+      }
+
+      if (leadId) {
         // ── Atualizar ultima_msg no lead ──
         await db.from('leads').update({
           ultima_msg_de: channel_user_id,
           ultima_msg_em: new Date().toISOString(),
-        }).eq('id', sessaoAtual.leadId);
+        }).eq('id', leadId);
 
         // ── Reentrada: checar se lead está em pausa, fechado ou encerrado ──
         const { data: leadAtual } = await db
           .from('leads')
           .select('status_operacao, is_reaquecido')
-          .eq('id', sessaoAtual.leadId)
+          .eq('id', leadId)
           .maybeSingle();
 
         if (leadAtual && ['em_pausa', 'fechado'].includes(leadAtual.status_operacao)) {
@@ -132,15 +145,15 @@ app.post('/webhook', async (req, res) => {
             status_operacao: 'ativo',
             is_reaquecido: true,
             reaquecido_em: new Date().toISOString(),
-          }).eq('id', sessaoAtual.leadId);
-          io.emit('lead_reaquecido', { lead_id: sessaoAtual.leadId, status_anterior: leadAtual.status_operacao });
+          }).eq('id', leadId);
+          io.emit('lead_reaquecido', { lead_id: leadId, status_anterior: leadAtual.status_operacao });
         }
 
         // ── Reentrada clássica: atendimento encerrado ──
         const { data: atExistente } = await db
           .from('atendimentos')
           .select('status')
-          .eq('lead_id', sessaoAtual.leadId)
+          .eq('lead_id', leadId)
           .in('status', ['convertido', 'nao_fechou', 'enfileirado', 'aguardando'])
           .maybeSingle();
 
@@ -149,24 +162,24 @@ app.post('/webhook', async (req, res) => {
           await db.from('leads').update({
             is_reaquecido: true,
             reaquecido_em: new Date().toISOString(),
-          }).eq('id', sessaoAtual.leadId);
+          }).eq('id', leadId);
 
           io.emit('lead_reaquecido', {
-            lead_id: sessaoAtual.leadId,
+            lead_id: leadId,
             status_anterior: atExistente.status,
           });
         }
 
         // Mensagem recebida do lead
         await db.from('mensagens').insert({
-          lead_id: sessaoAtual.leadId,
+          lead_id: leadId,
           de: channel_user_id,
           tipo: 'mensagem',
           conteudo: mensagem,
         });
         // Resposta do bot
         await db.from('mensagens').insert({
-          lead_id: sessaoAtual.leadId,
+          lead_id: leadId,
           de: 'bot',
           tipo: 'mensagem',
           conteudo: resposta.message,
@@ -176,7 +189,7 @@ app.post('/webhook', async (req, res) => {
         if (resultado.fluxo || resultado.score) {
           const logMsg = `[SISTEMA] Motor Santos & Bastos: ${resultado.fluxo || '—'} | Score ${resultado.score}/10 | ${resultado.prioridade || 'FRIO'}`;
           await db.from('mensagens').insert({
-            lead_id: sessaoAtual.leadId,
+            lead_id: leadId,
             de: 'sistema',
             tipo: 'sistema',
             conteudo: logMsg,
@@ -184,14 +197,14 @@ app.post('/webhook', async (req, res) => {
         }
         // Broadcast via Socket.io
         io.emit('nova_mensagem_salva', {
-          lead_id: sessaoAtual.leadId,
+          lead_id: leadId,
           de: channel_user_id,
           tipo: 'mensagem',
           conteudo: mensagem,
           created_at: new Date().toISOString(),
         });
         io.emit('nova_mensagem_salva', {
-          lead_id: sessaoAtual.leadId,
+          lead_id: leadId,
           de: 'bot',
           tipo: 'mensagem',
           conteudo: resposta.message,

@@ -70,7 +70,24 @@ async function persistirFluxo(sessao) {
   const s = await sessionManager.getSession(sessao);
   if (!s) return;
 
-  const leadId = s.leadId || randomUUID();
+  // Dedup: checar se já existe lead pra este identity_id (resiliente a falhas)
+  let existingLeadId = null;
+  try {
+    const { getSupabase } = require('./supabaseAdmin');
+    const db = getSupabase();
+    const { data: existingLead } = await db
+      .from('leads')
+      .select('id')
+      .eq('identity_id', sessao)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    existingLeadId = existingLead?.id;
+  } catch (_) {
+    // Em modo memory/test, ignora dedup via Supabase
+  }
+
+  const leadId = existingLeadId || s.leadId || randomUUID();
   const request_id = randomUUID();
   await sessionManager.updateSession(sessao, { leadId });
 
