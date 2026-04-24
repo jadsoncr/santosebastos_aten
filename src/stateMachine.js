@@ -158,6 +158,32 @@ async function persistirFluxo(sessao) {
     }
 
     // trabalhista, familia, advogado
+    // Se lead já existe pra este identity_id, UPDATE em vez de INSERT
+    if (existingLeadId) {
+      try {
+        const { getSupabase } = require('./supabaseAdmin');
+        const db = getSupabase();
+        await db.from('leads').update({
+          nome: s.nome,
+          telefone: s.telefoneContato || null,
+          area: s.fluxo === 'advogado' ? 'trabalhista' : s.fluxo,
+          score: s.score || 0,
+          prioridade: s.prioridade || 'FRIO',
+          flagAtencao: s.flagAtencao,
+          canalPreferido: s.canalPreferido,
+          resumo: JSON.stringify({
+            status: s.trabalhoStatus,
+            tipo: s.trabalhoTipo || s.familiaTipo,
+            tempo: s.trabalhoTempo,
+            salario: s.trabalhoSalario,
+            contrato: s.trabalhoContrato,
+            intencao: s.trabalhoIntencao || s.familiaIntencao,
+          }),
+        }).eq('id', existingLeadId);
+        return;
+      } catch (_) {}
+    }
+
     await storage.createLead({
       leadId,
       request_id,

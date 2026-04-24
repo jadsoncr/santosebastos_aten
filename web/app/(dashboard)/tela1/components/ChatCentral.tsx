@@ -47,10 +47,40 @@ export default function ChatCentral({ lead }: Props) {
   // Load messages when lead changes
   const loadMessages = useCallback(async () => {
     if (!lead) { setMensagens([]); return }
+
+    // Buscar todas as mensagens de todos os leads deste identity_id
+    // Primeiro, pegar o identity_id do lead
+    const { data: leadData } = await supabase
+      .from('leads')
+      .select('identity_id')
+      .eq('id', lead.id)
+      .maybeSingle()
+
+    if (!leadData?.identity_id) {
+      // Fallback: buscar por lead_id direto
+      const { data } = await supabase
+        .from('mensagens')
+        .select('*')
+        .eq('lead_id', lead.id)
+        .order('created_at', { ascending: true })
+      if (data) setMensagens(data)
+      return
+    }
+
+    // Buscar todos os leads deste identity_id
+    const { data: allLeads } = await supabase
+      .from('leads')
+      .select('id')
+      .eq('identity_id', leadData.identity_id)
+
+    const leadIds = (allLeads || []).map(l => l.id)
+    if (leadIds.length === 0) { setMensagens([]); return }
+
+    // Buscar mensagens de todos os leads
     const { data } = await supabase
       .from('mensagens')
       .select('*')
-      .eq('lead_id', lead.id)
+      .in('lead_id', leadIds)
       .order('created_at', { ascending: true })
     if (data) setMensagens(data)
   }, [lead?.id])

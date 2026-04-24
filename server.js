@@ -125,6 +125,12 @@ app.post('/webhook', async (req, res) => {
         leadId = existingLead?.id;
       }
 
+      // Salvar channel_user_id no lead pra outbound
+      if (leadId) {
+        await db.from('leads').update({ channel_user_id }).eq('id', leadId);
+      }
+      }
+
       if (leadId) {
         // ── Atualizar ultima_msg no lead ──
         await db.from('leads').update({
@@ -340,7 +346,31 @@ io.on('connection', (socket) => {
     if (!error && data) {
       io.emit('nova_mensagem_salva', data);
     }
-    // origem === 'humano' → NÃO processar pela state machine
+
+    // OUTBOUND: se mensagem do operador humano, enviar pro Telegram
+    if (origem === 'humano' && tipo !== 'nota_interna' && lead_id) {
+      try {
+        const { data: lead } = await db
+          .from('leads')
+          .select('channel_user_id, canal_origem')
+          .eq('id', lead_id)
+          .maybeSingle();
+
+        if (lead?.channel_user_id && lead.canal_origem === 'telegram') {
+          await sendTelegram(lead.channel_user_id, conteudo);
+        }
+        // WhatsApp outbound via n8n webhook (se configurado)
+        if (lead?.channel_user_id && lead.canal_origem !== 'telegram' && process.env.WEBHOOK_N8N_URL) {
+          await fetch(process.env.WEBHOOK_N8N_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ telefone: lead.channel_user_id, mensagem: conteudo }),
+          });
+        }
+      } catch (outErr) {
+        console.error('[outbound] erro ao enviar:', outErr.message);
+      }
+    }
   });
 
   // Status do operador
