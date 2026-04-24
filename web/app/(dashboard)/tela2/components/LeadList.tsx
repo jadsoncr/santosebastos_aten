@@ -41,17 +41,20 @@ export default function LeadList({ filters, selectedLeadId, onSelectLead }: Prop
   const supabase = createClient()
 
   const loadLeads = useCallback(async () => {
-    const [leadsRes, clientsRes, othersRes, abandonosRes, potRes] = await Promise.all([
+    const [leadsRes, clientsRes, othersRes, abandonosRes, potRes, atRes] = await Promise.all([
       supabase.from('leads').select('*').order('score', { ascending: false }),
       supabase.from('clients').select('*').order('created_at', { ascending: false }),
       supabase.from('others').select('*').order('created_at', { ascending: false }),
       supabase.from('abandonos').select('*').order('created_at', { ascending: false }),
       supabase.from('pot_tratamento').select('lead_id').eq('status', 'ativo'),
+      supabase.from('atendimentos').select('lead_id, status, status_pagamento'),
     ])
 
     if (leadsRes.error) {
       console.error('[LeadList] erro ao carregar leads:', leadsRes.error.message)
     }
+
+    const atMap = new Map((atRes.data || []).map((a: any) => [a.lead_id, a]))
 
     const potLeadIds = new Set((potRes.data || []).map((p: any) => p.lead_id))
 
@@ -59,6 +62,8 @@ export default function LeadList({ filters, selectedLeadId, onSelectLead }: Prop
       ...(leadsRes.data || []).map((l: any) => ({
         ...l,
         _tipo: potLeadIds.has(l.id) ? 'pot' : 'lead',
+        _atStatus: atMap.get(l.id)?.status || null,
+        _pgStatus: atMap.get(l.id)?.status_pagamento || null,
       })),
       ...(clientsRes.data || []).map((c: any) => ({ ...c, _tipo: 'cliente', score: 0, prioridade: 'MEDIO', area: 'cliente' })),
       ...(othersRes.data || []).map((o: any) => ({ ...o, _tipo: 'outros', score: 0, prioridade: 'FRIO', area: 'outros' })),
@@ -101,10 +106,16 @@ export default function LeadList({ filters, selectedLeadId, onSelectLead }: Prop
   if (filters.status) {
     filtered = filtered.filter(l => {
       const tipo = (l as any)._tipo
+      const atStatus = (l as any)._atStatus
+      const pgStatus = (l as any)._pgStatus
       switch (filters.status) {
         case 'recebidos': return tipo === 'lead' || tipo === 'cliente'
         case 'desprezados': return tipo === 'outros' || tipo === 'abandono' || l.score < 4
         case 'potAtivo': return tipo === 'pot'
+        case 'convertido': return atStatus === 'convertido'
+        case 'pgPendente': return atStatus === 'convertido' && pgStatus === 'Pendente'
+        case 'pgPago': return atStatus === 'convertido' && pgStatus === 'Pago'
+        case 'aguardando': return atStatus === 'aguardando'
         default: return true
       }
     })

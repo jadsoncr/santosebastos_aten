@@ -177,6 +177,17 @@ export default function ChatCentral({ lead }: Props) {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {mensagens.map(msg => {
+          // System log (bot analysis)
+          if (msg.tipo === 'sistema') {
+            return (
+              <div key={msg.id} className="flex justify-center">
+                <div className="px-3 py-1.5 rounded-full bg-bg-surface text-text-muted text-xs font-mono">
+                  {msg.conteudo}
+                </div>
+              </div>
+            )
+          }
+
           if (msg.tipo === 'nota_interna') {
             return (
               <div key={msg.id} className="flex justify-center">

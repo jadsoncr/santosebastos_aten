@@ -171,6 +171,17 @@ app.post('/webhook', async (req, res) => {
           tipo: 'mensagem',
           conteudo: resposta.message,
         });
+
+        // Log de sistema: classificação do bot
+        if (resultado.fluxo || resultado.score) {
+          const logMsg = `[SISTEMA] Motor Santos & Bastos: ${resultado.fluxo || '—'} | Score ${resultado.score}/10 | ${resultado.prioridade || 'FRIO'}`;
+          await db.from('mensagens').insert({
+            lead_id: sessaoAtual.leadId,
+            de: 'sistema',
+            tipo: 'sistema',
+            conteudo: logMsg,
+          });
+        }
         // Broadcast via Socket.io
         io.emit('nova_mensagem_salva', {
           lead_id: sessaoAtual.leadId,

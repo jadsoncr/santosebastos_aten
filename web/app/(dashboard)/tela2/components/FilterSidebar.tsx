@@ -21,8 +21,11 @@ interface Counts {
 const STATUS_OPTIONS = [
   { key: 'recebidos', label: 'Recebidos', icon: '📥' },
   { key: 'enviados', label: 'Enviados', icon: '📤' },
-  { key: 'aguardando', label: 'Aguardando', icon: '⏳' },
+  { key: 'aguardando', label: 'Aguardando Doc', icon: '⏳' },
   { key: 'potAtivo', label: 'Pot ativo', icon: '🔄' },
+  { key: 'convertido', label: 'Convertidos', icon: '✅' },
+  { key: 'pgPendente', label: 'Pgto Pendente', icon: '💳' },
+  { key: 'pgPago', label: 'Pgto Confirmado', icon: '💰' },
   { key: 'desprezados', label: 'Desprezados', icon: '🗂️' },
 ]
 
