@@ -213,30 +213,56 @@ app.post('/webhook', async (req, res) => {
           ultima_msg_em: new Date().toISOString(),
         }).eq('id', existingLead.id);
 
-        // ── SILENCIADOR: se humano assumiu, não processar pela stateMachine ──
+        // ── SILENCIADOR INTELIGENTE: verificar se humano está realmente ativo ──
         if (existingLead.is_assumido) {
-          // Apenas salvar mensagem no banco, não chamar bot
-          await db.from('mensagens').insert({
-            lead_id: existingLead.id,
-            de: channel_user_id,
-            tipo: 'mensagem',
-            conteudo: mensagem,
-            canal_origem: channel,
-          });
-          io.emit('nova_mensagem_salva', {
-            lead_id: existingLead.id,
-            de: channel_user_id,
-            tipo: 'mensagem',
-            conteudo: mensagem,
-            created_at: new Date().toISOString(),
-          });
+          // Verificar última interação do operador
+          const { data: leadFull } = await db
+            .from('leads')
+            .select('ultima_msg_em, ultima_msg_de')
+            .eq('id', existingLead.id)
+            .maybeSingle();
 
-          // Responder no Telegram que operador vai atender
-          if (isTelegram) {
-            await sendTelegram(tgMsg.chat.id, 'Um momento, nosso atendente está respondendo...');
-            return res.sendStatus(200);
+          const ultimaInteracao = leadFull?.ultima_msg_em ? new Date(leadFull.ultima_msg_em) : null;
+          const agora = new Date();
+          const diffMin = ultimaInteracao ? (agora.getTime() - ultimaInteracao.getTime()) / 60000 : 999;
+
+          // Se inatividade > 5 min, liberar para o bot
+          if (diffMin > 5) {
+            console.log('[AUTO RELEASE] liberando is_assumido por inatividade no webhook', {
+              lead_id: existingLead.id, inatividade_min: Math.floor(diffMin),
+            });
+            await db.from('leads').update({
+              is_assumido: false,
+              status_triagem: 'bot_ativo',
+            }).eq('id', existingLead.id);
+            // NÃO retornar — deixar o bot processar normalmente
+            console.log('[BOT LIBERADO]', { lead_id: existingLead.id });
+          } else {
+            // Humano ativo — bloquear bot
+            console.log('[BOT BLOQUEADO - HUMANO ATIVO]', {
+              lead_id: existingLead.id, inatividade_min: Math.floor(diffMin),
+            });
+            await db.from('mensagens').insert({
+              lead_id: existingLead.id,
+              de: channel_user_id,
+              tipo: 'mensagem',
+              conteudo: mensagem,
+              canal_origem: channel,
+            });
+            io.emit('nova_mensagem_salva', {
+              lead_id: existingLead.id,
+              de: channel_user_id,
+              tipo: 'mensagem',
+              conteudo: mensagem,
+              created_at: new Date().toISOString(),
+            });
+
+            if (isTelegram) {
+              await sendTelegram(tgMsg.chat.id, 'Um momento, nosso atendente está respondendo...');
+              return res.sendStatus(200);
+            }
+            return res.json({ message: 'Atendimento humano ativo.' });
           }
-          return res.json({ message: 'Atendimento humano ativo.' });
         }
       }
     } catch (upsertErr) {
@@ -516,8 +542,13 @@ io.on('connection', (socket) => {
     // OUTBOUND: se mensagem do operador humano, enviar pro Telegram/WhatsApp
     if (origem === 'humano' && tipo !== 'nota_interna' && lead_id) {
       try {
-        // Marcar lead como assumido por humano (silencia o bot)
-        await db.from('leads').update({ is_assumido: true, status_triagem: 'humano_assumiu' }).eq('id', lead_id);
+        // Marcar lead como assumido por humano (silencia o bot) + registrar timestamp
+        await db.from('leads').update({
+          is_assumido: true,
+          status_triagem: 'humano_assumiu',
+          ultima_msg_de: de,
+          ultima_msg_em: new Date().toISOString(),
+        }).eq('id', lead_id);
 
         const { data: lead } = await db
           .from('leads')
@@ -663,7 +694,7 @@ async function sweepOperacao() {
   let snoozeMinutos = 60;
   let abandonoTriagemHoras = 2;
   let abandonoAtendimentoHoras = 24;
-  let autoReleaseMinutos = 30;
+  let autoReleaseMinutos = 5;
 
   try {
     const { data: slaConfigs } = await db.from('configuracoes_sla').select('chave, valor');
@@ -672,7 +703,7 @@ async function sweepOperacao() {
         if (cfg.chave === 'tempo_snooze_minutos') snoozeMinutos = parseInt(cfg.valor) || 60;
         if (cfg.chave === 'tempo_abandono_triagem_horas') abandonoTriagemHoras = parseInt(cfg.valor) || 2;
         if (cfg.chave === 'tempo_abandono_atendimento_horas') abandonoAtendimentoHoras = parseInt(cfg.valor) || 24;
-        if (cfg.chave === 'tempo_auto_release_minutos') autoReleaseMinutos = parseInt(cfg.valor) || 30;
+        if (cfg.chave === 'tempo_auto_release_minutos') autoReleaseMinutos = parseInt(cfg.valor) || 5;
       }
     }
   } catch (e) { console.error('[sweep] SLA config read fail:', e.message); }

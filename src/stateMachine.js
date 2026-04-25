@@ -520,6 +520,23 @@ async function process(sessao, mensagem, canal) {
     return buildResposta(sessaoAtualizada, msg, 'start');
   }
 
+  // Encerramento: resetar is_assumido para liberar o bot na próxima interação
+  if (proximoEstado === 'encerramento') {
+    try {
+      const db = getSupabase();
+      const { data: leadDoSessao } = await db
+        .from('leads')
+        .select('id')
+        .eq('identity_id', sessao)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (leadDoSessao) {
+        await db.from('leads').update({ is_assumido: false, status_triagem: 'bot_ativo' }).eq('id', leadDoSessao.id);
+      }
+    } catch (_) { /* não bloquear fluxo */ }
+  }
+
   // Próxima pergunta
   const pergunta = PERGUNTAS[proximoEstado] || PERGUNTAS.start;
   await sessionManager.updateSession(sessao, { ultimaPergunta: pergunta });
