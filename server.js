@@ -55,6 +55,14 @@ async function sendTelegramWithTyping(chat_id, text, area) {
   return BOT_PERSONAS[areaKey] || DEFAULT_PERSONA;
 }
 
+async function sendTelegramDocument(chat_id, document_url, caption) {
+  await fetch(`${TELEGRAM_API}/sendDocument`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id, document: document_url, caption }),
+  });
+}
+
 const app = express();
 app.use(express.json());
 
@@ -528,13 +536,23 @@ io.on('connection', (socket) => {
   });
 
   // Nova mensagem (do operador humano)
-  socket.on('nova_mensagem', async ({ lead_id, de, conteudo, tipo, operador_id, origem }) => {
+  socket.on('nova_mensagem', async ({ lead_id, de, conteudo, tipo, operador_id, origem, arquivo_url, arquivo_nome, arquivo_tipo, arquivo_tamanho }) => {
     console.log('[SEND START]', { lead_id, de, conteudo: conteudo?.slice(0, 50), tipo, origem, ts: new Date().toISOString() });
 
     const db = getSupabase();
+
+    // Build insert payload — include arquivo_* fields when tipo === 'arquivo'
+    const insertPayload = { lead_id, de, conteudo, tipo: tipo || 'mensagem', operador_id };
+    if (tipo === 'arquivo') {
+      insertPayload.arquivo_url = arquivo_url;
+      insertPayload.arquivo_nome = arquivo_nome;
+      insertPayload.arquivo_tipo = arquivo_tipo;
+      insertPayload.arquivo_tamanho = arquivo_tamanho;
+    }
+
     const { data, error } = await db
       .from('mensagens')
-      .insert({ lead_id, de, conteudo, tipo: tipo || 'mensagem', operador_id })
+      .insert(insertPayload)
       .select()
       .single();
 
@@ -578,15 +596,36 @@ io.on('connection', (socket) => {
         }
 
         if (lead.canal_origem === 'telegram') {
-          await sendTelegram(lead.channel_user_id, conteudo);
-          console.log('[OUTBOUND SUCCESS]', { canal: 'telegram', channel_user_id: lead.channel_user_id });
+          if (tipo === 'arquivo' && arquivo_url) {
+            try {
+              await sendTelegramDocument(lead.channel_user_id, arquivo_url, arquivo_nome);
+              console.log('[OUTBOUND SUCCESS]', { canal: 'telegram', tipo: 'arquivo', channel_user_id: lead.channel_user_id });
+            } catch (fileErr) {
+              console.error(JSON.stringify({ level: 'error', msg: 'outbound_file_fail', lead_id, erro: fileErr.message, ts: new Date().toISOString() }));
+            }
+          } else {
+            await sendTelegram(lead.channel_user_id, conteudo);
+            console.log('[OUTBOUND SUCCESS]', { canal: 'telegram', channel_user_id: lead.channel_user_id });
+          }
         } else if (process.env.WEBHOOK_N8N_URL) {
-          await fetch(process.env.WEBHOOK_N8N_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ telefone: lead.channel_user_id, mensagem: conteudo }),
-          });
-          console.log('[OUTBOUND SUCCESS]', { canal: 'whatsapp', channel_user_id: lead.channel_user_id });
+          const webhookPayload = { telefone: lead.channel_user_id, mensagem: tipo === 'arquivo' ? arquivo_nome : conteudo };
+          if (tipo === 'arquivo' && arquivo_url) {
+            webhookPayload.arquivo_url = arquivo_url;
+          }
+          try {
+            await fetch(process.env.WEBHOOK_N8N_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(webhookPayload),
+            });
+            console.log('[OUTBOUND SUCCESS]', { canal: 'whatsapp', channel_user_id: lead.channel_user_id });
+          } catch (whatsErr) {
+            if (tipo === 'arquivo') {
+              console.error(JSON.stringify({ level: 'error', msg: 'outbound_file_fail', lead_id, erro: whatsErr.message, ts: new Date().toISOString() }));
+            } else {
+              throw whatsErr;
+            }
+          }
         } else {
           console.warn('[OUTBOUND SKIP] canal não-telegram e WEBHOOK_N8N_URL não configurada', { canal_origem: lead.canal_origem });
         }

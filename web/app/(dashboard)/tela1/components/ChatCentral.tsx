@@ -10,6 +10,7 @@ import PopupEnfileirar from './PopupEnfileirar'
 import PopupAguardando from './PopupAguardando'
 import { displayPhone, phoneTag } from '@/utils/format'
 import { COPY } from '@/utils/copy'
+import { validateFileSize, validateFileType, formatFileSize } from '@/utils/fileValidation'
 import type { Lead } from '../page'
 
 interface Mensagem {
@@ -20,6 +21,10 @@ interface Mensagem {
   conteudo: string
   operador_id: string | null
   created_at: string
+  arquivo_url?: string | null
+  arquivo_nome?: string | null
+  arquivo_tipo?: string | null
+  arquivo_tamanho?: number | null
 }
 
 interface Props {
@@ -37,8 +42,11 @@ export default function ChatCentral({ lead }: Props) {
   const [operadorId, setOperadorId] = useState<string | null>(null)
   const [isAssumido, setIsAssumido] = useState(lead?.is_assumido ?? false)
   const [channelMap, setChannelMap] = useState<Record<string, string>>({})
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const socket = useSocket()
   const supabase = createClient()
@@ -220,6 +228,74 @@ export default function ChatCentral({ lead }: Props) {
 
   const handleEncerrar = () => setShowEnfileirar(true)
 
+  // Handle file selection and upload
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !lead || !socket || !operadorId) return
+
+    // Reset file input so the same file can be selected again
+    e.target.value = ''
+
+    // Client-side validation: file size
+    const sizeCheck = validateFileSize(file.size)
+    if (!sizeCheck.valid) {
+      setUploadError(sizeCheck.error ?? 'Arquivo excede o limite de 10 MB')
+      setTimeout(() => setUploadError(null), 3000)
+      return
+    }
+
+    // Client-side validation: MIME type
+    const typeCheck = validateFileType(file.type)
+    if (!typeCheck.valid) {
+      setUploadError(typeCheck.error ?? 'Tipo de arquivo não permitido')
+      setTimeout(() => setUploadError(null), 3000)
+      return
+    }
+
+    setIsUploading(true)
+    setUploadError(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('lead_id', lead.id)
+
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        setUploadError(data.error || 'Falha no envio do arquivo. Tente novamente.')
+        setTimeout(() => setUploadError(null), 3000)
+        return
+      }
+
+      // Emit file message via socket
+      socket.emit('nova_mensagem', {
+        lead_id: lead.id,
+        de: operadorId,
+        conteudo: data.nome,
+        tipo: 'arquivo',
+        operador_id: operadorId,
+        origem: 'humano',
+        arquivo_url: data.url,
+        arquivo_nome: data.nome,
+        arquivo_tipo: data.tipo,
+        arquivo_tamanho: data.tamanho,
+      })
+
+      setIsAssumido(true)
+    } catch {
+      setUploadError('Falha no envio do arquivo. Tente novamente.')
+      setTimeout(() => setUploadError(null), 3000)
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
   // Format timestamp
   const formatTime = (dateStr: string) => {
     return new Date(dateStr).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
@@ -292,6 +368,88 @@ export default function ChatCentral({ lead }: Props) {
           }
 
           const sent = isSent(msg)
+
+          // File message rendering
+          if (msg.tipo === 'arquivo') {
+            const isImage = msg.arquivo_tipo?.startsWith('image/')
+            return (
+              <div key={msg.id} className={`flex ${sent ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className={`max-w-[70%] px-3 py-2 text-sm text-text-primary ${
+                    sent
+                      ? 'bg-chat-sent rounded-[12px_0_12px_12px]'
+                      : 'bg-chat-received rounded-[0_12px_12px_12px]'
+                  }`}
+                >
+                  {isImage && msg.arquivo_url ? (
+                    <div>
+                      <img
+                        src={msg.arquivo_url}
+                        alt={msg.arquivo_nome || 'Imagem'}
+                        className="max-w-[280px] max-h-[200px] rounded-lg"
+                      />
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className="text-xs text-text-secondary truncate">
+                          {msg.arquivo_nome}
+                        </span>
+                        <a
+                          href={msg.arquivo_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-accent hover:underline flex-shrink-0"
+                        >
+                          Baixar
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-bg-surface flex items-center justify-center">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
+                          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                          <polyline points="14 2 14 8 20 8" />
+                          <line x1="16" y1="13" x2="8" y2="13" />
+                          <line x1="16" y1="17" x2="8" y2="17" />
+                          <polyline points="10 9 9 9 8 9" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{msg.arquivo_nome || 'Arquivo'}</p>
+                        <p className="text-xs text-text-muted">
+                          {msg.arquivo_tamanho ? formatFileSize(msg.arquivo_tamanho) : ''}
+                        </p>
+                      </div>
+                      {msg.arquivo_url && (
+                        <a
+                          href={msg.arquivo_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-shrink-0 px-2.5 py-1 rounded-md text-xs font-medium text-accent hover:bg-accent/10 transition-colors"
+                        >
+                          Baixar
+                        </a>
+                      )}
+                    </div>
+                  )}
+                  <span className="font-mono text-xs text-text-muted block mt-1">
+                    {formatTime(msg.created_at)}
+                    {!sent && channelMap[msg.de] ? (
+                      <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded ${
+                        channelMap[msg.de] === 'telegram'
+                          ? 'bg-accent/10 text-accent'
+                          : 'bg-success/10 text-success'
+                      }`}>
+                        via {channelMap[msg.de] === 'telegram' ? 'Telegram' : 'WhatsApp'}
+                      </span>
+                    ) : (
+                      !sent && phoneTag(msg.de) && <span className="ml-1 opacity-60">via {phoneTag(msg.de)}</span>
+                    )}
+                  </span>
+                </div>
+              </div>
+            )
+          }
+
           return (
             <div key={msg.id} className={`flex ${sent ? 'justify-end' : 'justify-start'}`}>
               <div
@@ -369,13 +527,29 @@ export default function ChatCentral({ lead }: Props) {
           {/* Botão anexo */}
           <button
             type="button"
-            title="Anexar arquivo (em breve)"
-            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-text-muted hover:text-text-secondary hover:bg-bg-surface-hover transition-colors"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            title="Anexar arquivo"
+            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-text-muted hover:text-text-secondary hover:bg-bg-surface-hover transition-colors disabled:opacity-50"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
-            </svg>
+            {isUploading ? (
+              <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                <path d="M12 2a10 10 0 019.95 9" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+              </svg>
+            )}
           </button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
 
           {/* Campo de texto */}
           <div className="flex-1 relative">
@@ -427,6 +601,13 @@ export default function ChatCentral({ lead }: Props) {
             </button>
           )}
         </div>
+
+        {/* Upload error message */}
+        {uploadError && (
+          <div className="mt-2 px-3 py-1.5 rounded-lg bg-error/10 text-error text-xs">
+            {uploadError}
+          </div>
+        )}
       </div>
 
       {/* Popup Enfileirar */}
