@@ -11,8 +11,8 @@ export const COPY = {
   // ── Sidebar principal ──────────────────────────────────────
   sidebar: {
     titulo: 'BRO Resolve',
-    captacao: 'Captação',
-    carteira: 'Carteira',
+    captacao: 'Central de Atendimento',
+    carteira: 'BackOffice',
     financeiro: 'Gestão Financeira',
     backoffice: 'Configurações',
   },
@@ -105,5 +105,19 @@ export const COPY = {
     enviarProposta: 'Enviar Proposta',
     pedirDocumentos: 'Solicitar Documentos',
     avancarPipeline: 'Avançar Pipeline',
+  },
+
+  // ── Busca e filtros ────────────────────────────────────────
+  busca: {
+    placeholder: 'Pesquisar ou começar uma nova conversa',
+    nenhumResultado: 'Nenhum contato encontrado.',
+    adicionarNovo: 'Deseja adicionar?',
+    novoContato: 'Novo Contato',
+  },
+
+  pills: {
+    tudo: 'Tudo',
+    naoLidas: 'Não Lidas',
+    retorno: 'Retorno',
   },
 } as const
