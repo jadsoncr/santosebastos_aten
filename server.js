@@ -452,6 +452,13 @@ const io = new Server(httpServer, {
   },
 });
 
+// ─── Timeline Helper ────────────────────────────────────────────────────────
+async function registrarTimelineEvent(db, lead_id, tipo, descricao, operador_id, metadata) {
+  try {
+    await db.from('timeline_events').insert({ lead_id, tipo, descricao, operador_id, metadata });
+  } catch (e) { console.error('[timeline]', e.message); }
+}
+
 // ─── Socket.io handlers ────────────────────────────────────────────────────
 const typingThrottle = new Map();
 
@@ -572,6 +579,51 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Pipeline transition handler
+  socket.on('pipeline_transition', async ({ lead_id, target_stage, conditions }) => {
+    const { validateTransition } = require('./src/pipeline');
+    const db = getSupabase();
+
+    const { data: lead } = await db.from('leads').select('status_pipeline, nome, telefone, score, segmento_id').eq('id', lead_id).maybeSingle();
+    if (!lead) { socket.emit('pipeline_error', { lead_id, error: 'Lead não encontrado.' }); return; }
+
+    const result = validateTransition(lead.status_pipeline || 'ENTRADA', target_stage, { ...lead, ...conditions });
+    if (!result.allowed) { socket.emit('pipeline_error', { lead_id, error: result.error }); return; }
+
+    await db.from('leads').update({ status_pipeline: target_stage }).eq('id', lead_id);
+    if (conditions && Object.keys(conditions).length > 0) {
+      await db.from('atendimentos').update(conditions).eq('lead_id', lead_id);
+    }
+
+    io.emit('pipeline_changed', { lead_id, status_anterior: lead.status_pipeline, status_novo: target_stage, operador_id: null });
+
+    // Momento WOW — quando lead chega em CARTEIRA_ATIVA
+    if (target_stage === 'CARTEIRA_ATIVA') {
+      // Webhook
+      if (process.env.WEBHOOK_WOW_URL) {
+        try {
+          const controller = new AbortController();
+          setTimeout(() => controller.abort(), 5000);
+          await fetch(process.env.WEBHOOK_WOW_URL, {
+            method: 'POST', signal: controller.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome: lead.nome, telefone: lead.telefone, valor_entrada: conditions.valor_entrada, metodo_pagamento: conditions.metodo_pagamento, data_conversao: new Date().toISOString() }),
+          });
+        } catch (e) { console.error('[webhook_wow]', e.message); }
+      }
+      // Welcome message
+      const { data: leadFull } = await db.from('leads').select('channel_user_id, canal_origem, nome').eq('id', lead_id).maybeSingle();
+      if (leadFull?.channel_user_id && leadFull.canal_origem === 'telegram') {
+        const msg = `${leadFull.nome || 'Prezado(a)'}, seja bem-vindo(a) ao escritorio Santos e Bastos Advogados.\n\nConfirmamos o inicio do seu atendimento. Voce recebera orientacoes sobre documentacao necessaria.\n\nAgradecemos a confianca.\nEquipe Santos e Bastos Advogados`;
+        await sendTelegramWithTyping(leadFull.channel_user_id, msg, null);
+        await db.from('mensagens').insert({ lead_id, de: 'bot', tipo: 'sistema', conteudo: msg, canal_origem: 'telegram' });
+      }
+    }
+
+    // Register timeline event
+    await registrarTimelineEvent(db, lead_id, 'status_atualizado', `Pipeline: ${lead.status_pipeline} → ${target_stage}`, null, { from: lead.status_pipeline, to: target_stage, conditions });
+  });
+
   socket.on('disconnect', () => {
     console.log(`[socket] desconectado: ${socket.id}`);
   });
@@ -580,13 +632,30 @@ io.on('connection', (socket) => {
 // ─── Sweep: Motor de Estados Automáticos ────────────────────────────────────
 // Roda a cada 5 minutos no servidor. Garante consistência mesmo com browser fechado.
 const SWEEP_INTERVAL = 5 * 60 * 1000; // 5 min
-const SNOOZE_THRESHOLD = 30 * 60 * 1000; // 30 min
-const ABANDONO_TRIAGEM = 2 * 60 * 60 * 1000; // 2h
-const ABANDONO_ATENDIMENTO = 24 * 60 * 60 * 1000; // 24h
 
 async function sweepOperacao() {
   const db = getSupabase();
   const agora = new Date();
+
+  // Read SLA config from database
+  let snoozeMinutos = 60;
+  let abandonoTriagemHoras = 2;
+  let abandonoAtendimentoHoras = 24;
+
+  try {
+    const { data: slaConfigs } = await db.from('configuracoes_sla').select('chave, valor');
+    if (slaConfigs) {
+      for (const cfg of slaConfigs) {
+        if (cfg.chave === 'tempo_snooze_minutos') snoozeMinutos = parseInt(cfg.valor) || 60;
+        if (cfg.chave === 'tempo_abandono_triagem_horas') abandonoTriagemHoras = parseInt(cfg.valor) || 2;
+        if (cfg.chave === 'tempo_abandono_atendimento_horas') abandonoAtendimentoHoras = parseInt(cfg.valor) || 24;
+      }
+    }
+  } catch (e) { console.error('[sweep] SLA config read fail:', e.message); }
+
+  const SNOOZE_THRESHOLD = snoozeMinutos * 60 * 1000;
+  const ABANDONO_TRIAGEM = abandonoTriagemHoras * 60 * 60 * 1000;
+  const ABANDONO_ATENDIMENTO = abandonoAtendimentoHoras * 60 * 60 * 1000;
 
   try {
     // 1. Auto-Snooze: última msg do operador, cliente não respondeu em 30min

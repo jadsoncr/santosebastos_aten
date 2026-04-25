@@ -146,7 +146,13 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
   function renderLeadItem(lead: LeadWithMeta) {
     const priority = getPriorityStyle(lead.score)
     const isSelected = lead.id === selectedLeadId
-    const slaVencido = lead._slaVencido
+
+    // Border-left by propensity score
+    const borderLeftClass = lead.score >= 7
+      ? 'border-l-4 border-l-score-hot'
+      : lead.score >= 4
+      ? 'border-l-4 border-l-score-warm'
+      : 'border-l-4 border-l-score-cold'
 
     return (
       <div key={lead.id}
@@ -158,7 +164,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
         }}
         className={`px-3 py-2.5 cursor-pointer border-b border-border transition-colors ${
           isSelected ? 'bg-bg-surface-hover' : 'hover:bg-bg-surface-hover'
-        } ${slaVencido ? 'border-l-2 border-l-warning' : ''}`}
+        } ${borderLeftClass}`}
       >
         <div className="flex items-center gap-2.5">
           <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${priority.bg} ${priority.text}`}>
@@ -170,7 +176,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
               {lead._tipo === 'reaquecido' && <span className="text-xs px-1 py-0.5 rounded bg-score-hot/10 text-score-hot font-medium">{COPY.indicadores.reativado}</span>}
               {lead._tipo === 'cliente_reaquecido' && <span className="text-xs px-1 py-0.5 rounded bg-success/10 text-success font-medium">{COPY.indicadores.cliente}</span>}
               {(lead as any).status_alegado === 'cliente_nao_encontrado' && <span className="text-xs px-1 py-0.5 rounded bg-warning/10 text-warning font-medium">{COPY.indicadores.alerta}</span>}
-              {slaVencido && <span className="text-xs px-1 py-0.5 rounded bg-warning/10 text-warning font-mono font-medium">{COPY.indicadores.sla}</span>}
+              {lead._slaVencido && <span className="text-xs px-1 py-0.5 rounded bg-warning/10 text-warning font-mono font-medium">{COPY.indicadores.sla}</span>}
             </div>
             <div className="flex items-center gap-1 mt-0.5">
               {lead.canal_origem && (
