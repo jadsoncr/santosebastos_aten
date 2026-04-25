@@ -69,11 +69,17 @@ const { sanitizeFileName } = require('./src/fileValidation');
 async function downloadAndUploadFile(fileBuffer, fileName, mimeType, leadId) {
   const sanitized = sanitizeFileName(fileName);
   const storagePath = `${leadId}/${sanitized}`;
-  const db = getSupabase();
 
-  console.log('[FILE UPLOAD] start', { storagePath, mimeType, size: fileBuffer.length, leadId });
+  // Use service_role key for Storage operations (anon key can't upload to private buckets)
+  const { createClient } = require('@supabase/supabase-js');
+  const storageClient = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+  );
 
-  const { error: uploadError } = await db.storage
+  console.log('[FILE UPLOAD] start', { storagePath, mimeType, size: fileBuffer.length, leadId, hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY });
+
+  const { error: uploadError } = await storageClient.storage
     .from('chat-files')
     .upload(storagePath, fileBuffer, { contentType: mimeType });
   if (uploadError) {
@@ -82,7 +88,7 @@ async function downloadAndUploadFile(fileBuffer, fileName, mimeType, leadId) {
   }
   console.log('[FILE UPLOAD] storage ok', { storagePath });
 
-  const { data: signedData, error: signError } = await db.storage
+  const { data: signedData, error: signError } = await storageClient.storage
     .from('chat-files')
     .createSignedUrl(storagePath, 604800);
   if (signError || !signedData?.signedUrl) {
