@@ -494,25 +494,9 @@ export default function BlocoQualificacao({
     }
   }
 
-  // --- WA link ---
-  function buildWaLink(): string | null {
-    if (!lead.telefone) return null
-    const phone = lead.telefone.replace(/\D/g, '')
-    const nome = lead.nome || 'cliente'
-    const segmentoNode = segmentNodes.find(n => n.id === selectedSegmento)
-    const area = segmentoNode?.nome || lead.area_bot || lead.area || 'seu caso'
-
-    const msg = isCliente
-      ? `Oi ${nome}, estou acessando seu prontuário de ${area} para te dar um retorno.`
-      : `Olá ${nome}, recebi seu caso de ${area}. Podemos falar agora?`
-
-    return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`
-  }
-
   // Change D: CONVERTER enabled only when email + valorEntrada + contratoAssinado + segmento
   const converterEnabled = !!emailValue.trim() && parseFloat(valorEntrada) > 0 && contratoAssinado && !!selectedSegmento && isAssumido
   const desfechoEnabled = !!selectedSegmento && isAssumido
-  const waLink = buildWaLink()
 
   return (
     <div className="space-y-4">
@@ -739,28 +723,6 @@ export default function BlocoQualificacao({
               </div>
             ))}
           </div>
-        )}
-      </div>
-
-      {/* Contato via WhatsApp */}
-      <div>
-        {waLink ? (
-          <a
-            href={waLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full block text-center py-2 rounded-md text-sm font-medium bg-success/10 text-success hover:bg-success/20"
-          >
-            {COPY.qualificacao.contatoWhatsApp}
-          </a>
-        ) : (
-          <button
-            disabled
-            title="Telefone não disponível"
-            className="w-full py-2 rounded-md text-sm font-medium bg-success/10 text-success opacity-40 cursor-not-allowed"
-          >
-            {COPY.qualificacao.contatoWhatsApp}
-          </button>
         )}
       </div>
 

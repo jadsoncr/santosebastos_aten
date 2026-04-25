@@ -11,7 +11,7 @@ export const COPY = {
   // ── Sidebar principal ──────────────────────────────────────
   sidebar: {
     titulo: 'BRO Resolve',
-    captacao: 'Central de Atendimento',
+    captacao: 'Central de Relacionamento',
     carteira: 'BackOffice',
     financeiro: 'Gestão Financeira',
     backoffice: 'Configurações',
