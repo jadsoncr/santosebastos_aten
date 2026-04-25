@@ -71,15 +71,25 @@ async function downloadAndUploadFile(fileBuffer, fileName, mimeType, leadId) {
   const storagePath = `${leadId}/${sanitized}`;
   const db = getSupabase();
 
+  console.log('[FILE UPLOAD] start', { storagePath, mimeType, size: fileBuffer.length, leadId });
+
   const { error: uploadError } = await db.storage
     .from('chat-files')
     .upload(storagePath, fileBuffer, { contentType: mimeType });
-  if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`);
+  if (uploadError) {
+    console.error('[FILE UPLOAD] storage error:', JSON.stringify(uploadError));
+    throw new Error(`Storage upload failed: ${uploadError.message}`);
+  }
+  console.log('[FILE UPLOAD] storage ok', { storagePath });
 
   const { data: signedData, error: signError } = await db.storage
     .from('chat-files')
     .createSignedUrl(storagePath, 604800);
-  if (signError || !signedData?.signedUrl) throw new Error(`Signed URL failed: ${(signError || {}).message}`);
+  if (signError || !signedData?.signedUrl) {
+    console.error('[FILE UPLOAD] signed URL error:', JSON.stringify(signError));
+    throw new Error(`Signed URL failed: ${(signError || {}).message}`);
+  }
+  console.log('[FILE UPLOAD] signed URL ok');
 
   return {
     url: signedData.signedUrl,
@@ -233,13 +243,29 @@ app.post('/webhook', async (req, res) => {
             fileName = tgMsg.audio.file_name || `audio_${Date.now()}.mp3`;
           }
 
+          console.log('[INBOUND AUDIO] start', { fileId, mimeType, fileName, fileLeadId });
+
           const fileInfoRes = await fetch(`${TELEGRAM_API}/getFile?file_id=${fileId}`);
           const fileInfo = await fileInfoRes.json();
+          console.log('[INBOUND AUDIO] getFile response:', JSON.stringify(fileInfo));
+
+          if (!fileInfo.ok || !fileInfo.result?.file_path) {
+            throw new Error(`getFile failed: ${JSON.stringify(fileInfo)}`);
+          }
+
           const filePath = fileInfo.result.file_path;
-          const downloadRes = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${filePath}`);
+          const downloadUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${filePath}`;
+          console.log('[INBOUND AUDIO] downloading from:', downloadUrl);
+
+          const downloadRes = await fetch(downloadUrl);
+          if (!downloadRes.ok) {
+            throw new Error(`Download failed: ${downloadRes.status} ${downloadRes.statusText}`);
+          }
           const buffer = Buffer.from(await downloadRes.arrayBuffer());
+          console.log('[INBOUND AUDIO] downloaded', { size: buffer.length });
 
           const fileData = await downloadAndUploadFile(buffer, fileName, mimeType, fileLeadId);
+          console.log('[INBOUND AUDIO] uploaded ok', { url: fileData.url?.slice(0, 50) });
 
           const { data: savedMsg } = await db.from('mensagens').insert({
             lead_id: fileLeadId,
@@ -257,6 +283,7 @@ app.post('/webhook', async (req, res) => {
             io.emit('nova_mensagem_salva', savedMsg);
           }
         } catch (audioErr) {
+          console.error('[INBOUND AUDIO FAIL]', { lead_id: fileLeadId, error: audioErr.message, stack: audioErr.stack?.split('\n').slice(0, 3).join(' | ') });
           console.error(JSON.stringify({ level: 'error', msg: 'inbound_audio_fail', lead_id: fileLeadId, erro: audioErr.message, ts: new Date().toISOString() }));
           await db.from('mensagens').insert({
             lead_id: fileLeadId,
