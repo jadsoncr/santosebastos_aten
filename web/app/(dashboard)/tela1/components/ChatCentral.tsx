@@ -139,12 +139,20 @@ export default function ChatCentral({ lead }: Props) {
       alert(data.mensagem)
     }
 
+    const handlePipelineError = (data: { lead_id: string; error: string }) => {
+      if (data.lead_id === lead.id) {
+        alert(`Erro no pipeline: ${data.error}`)
+      }
+    }
+
     socket.on('nova_mensagem_salva', handleNovaMensagem)
     socket.on('erro_assumir', handleErroAssimir)
+    socket.on('pipeline_error', handlePipelineError)
 
     return () => {
       socket.off('nova_mensagem_salva', handleNovaMensagem)
       socket.off('erro_assumir', handleErroAssimir)
+      socket.off('pipeline_error', handlePipelineError)
     }
   }, [socket, lead?.id])
 

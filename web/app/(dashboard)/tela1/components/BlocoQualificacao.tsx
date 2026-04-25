@@ -470,7 +470,7 @@ export default function BlocoQualificacao({
     setLoading(true)
     try {
       const { error: clientErr } = await supabase.from('clients').insert({
-        identity_id: lead.id,
+        identity_id: lead.identity_id || lead.id,
         request_id: crypto.randomUUID(),
         nome: lead.nome,
         telefone: lead.telefone,
