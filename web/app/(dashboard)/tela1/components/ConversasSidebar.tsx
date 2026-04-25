@@ -109,6 +109,8 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
         prioridade: lead.prioridade || 'FRIO', canal_origem: lead.canal_origem,
         created_at: lead.created_at, resumo: lead.resumo, corrigido: lead.corrigido ?? false,
         is_reaquecido: lead.is_reaquecido, _tipo: lead._tipo,
+        identity_id: lead.identity_id, ultima_msg_em: lead.ultima_msg_em,
+        channel_user_id: lead.channel_user_id,
       }
 
       if (at?.status === 'aguardando') {
@@ -217,20 +219,31 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
     }, 300)
   }
 
-  // ── Build flat list sorted by score (highest first) ──
+  // ── Build flat list: DEDUP by identity_id, keep most recent lead per identity ──
   function getAllLeadsFlat(): LeadWithMeta[] {
     const all = [...urgentes, ...emAtendimento, ...aguardando]
-    // Deduplicate by id
-    const seen = new Set<string>()
-    const unique: LeadWithMeta[] = []
+    // Dedup by identity_id — keep the lead with most recent ultima_msg_em or created_at
+    const identityMap = new Map<string, LeadWithMeta>()
     for (const lead of all) {
-      if (!seen.has(lead.id)) {
-        seen.add(lead.id)
-        unique.push(lead)
+      const key = lead.identity_id || lead.id
+      const existing = identityMap.get(key)
+      if (!existing) {
+        identityMap.set(key, lead)
+      } else {
+        const existingTime = existing.ultima_msg_em || existing.created_at
+        const currentTime = lead.ultima_msg_em || lead.created_at
+        if (new Date(currentTime) > new Date(existingTime)) {
+          identityMap.set(key, lead)
+        }
       }
     }
-    // Sort by score descending
-    unique.sort((a, b) => b.score - a.score)
+    const unique = Array.from(identityMap.values())
+    // Sort by most recent activity (ultima_msg_em or created_at)
+    unique.sort((a, b) => {
+      const timeA = a.ultima_msg_em || a.created_at
+      const timeB = b.ultima_msg_em || b.created_at
+      return new Date(timeB).getTime() - new Date(timeA).getTime()
+    })
     return unique
   }
 
@@ -324,7 +337,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
       ? 'border-l-4 border-l-score-warm'
       : 'border-l-4 border-l-score-cold'
 
-    const displayName = lead.nome || displayPhone(lead.telefone) || 'Contato'
+    const displayName = lead.nome || displayPhone(lead.telefone) || lead.channel_user_id || 'Contato'
     const preview = lead.lastMessage
       ? (lead.lastMessage.length > 45 ? lead.lastMessage.slice(0, 45) + '...' : lead.lastMessage)
       : ''
@@ -355,7 +368,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
                 {hasSearch ? highlightMatch(displayName, searchQuery) : displayName}
               </span>
               <span className="text-[11px] text-text-muted shrink-0 ml-2">
-                {timeAgo(lead.created_at)}
+                {timeAgo(lead.ultima_msg_em || lead.created_at)}
               </span>
             </div>
 

@@ -28,6 +28,9 @@ export interface Lead {
   assunto_id?: string | null
   especificacao_id?: string | null
   email?: string | null
+  identity_id?: string | null
+  ultima_msg_em?: string | null
+  channel_user_id?: string | null
 }
 
 export default function Tela1Page() {
