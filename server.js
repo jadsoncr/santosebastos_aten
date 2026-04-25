@@ -246,7 +246,7 @@ app.post('/webhook', async (req, res) => {
             // NÃO retornar — deixar o bot processar normalmente
             console.log('[BOT LIBERADO]', { lead_id: existingLead.id });
           } else {
-            // Humano ativo — bloquear bot
+            // Humano ativo — salvar mensagem silenciosamente, NÃO responder ao cliente
             console.log('[BOT BLOQUEADO - HUMANO ATIVO]', {
               lead_id: existingLead.id, inatividade_min: Math.floor(diffMin),
             });
@@ -265,8 +265,8 @@ app.post('/webhook', async (req, res) => {
               created_at: new Date().toISOString(),
             });
 
+            // NÃO enviar "Um momento..." — silêncio total, operador responde quando quiser
             if (isTelegram) {
-              await sendTelegram(tgMsg.chat.id, 'Um momento, nosso atendente está respondendo...');
               return res.sendStatus(200);
             }
             return res.json({ message: 'Atendimento humano ativo.' });
