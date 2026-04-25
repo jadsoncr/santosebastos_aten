@@ -39,12 +39,6 @@ function getInitials(nome: string | null, telefone: string | null): string {
   return telefone ? telefone.slice(-2) : '??'
 }
 
-function getPriorityStyle(score: number) {
-  if (score >= 7) return { bg: 'bg-[#FFF0E8]', text: 'text-score-hot' }
-  if (score >= 4) return { bg: 'bg-[#FFFBEB]', text: 'text-score-warm' }
-  return { bg: 'bg-bg-surface', text: 'text-score-cold' }
-}
-
 function highlightMatch(text: string, query: string): React.ReactNode {
   if (!query.trim() || !text) return text
   const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
@@ -134,6 +128,33 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
       if (!a._slaVencido && b._slaVencido) return 1
       return 0
     })
+
+    // Fetch last messages for all leads (client messages only, no bot/system)
+    const allLeadIds = [...urgList, ...emCursoList, ...aguardList].map(l => l.id)
+    if (allLeadIds.length > 0) {
+      const { data: lastMsgs } = await supabase
+        .from('mensagens')
+        .select('lead_id, conteudo')
+        .in('lead_id', allLeadIds)
+        .neq('de', 'bot')
+        .neq('tipo', 'sistema')
+        .neq('tipo', 'nota_interna')
+        .order('created_at', { ascending: false })
+
+      if (lastMsgs) {
+        const msgMap = new Map<string, string>()
+        for (const msg of lastMsgs) {
+          if (!msgMap.has(msg.lead_id)) {
+            msgMap.set(msg.lead_id, msg.conteudo)
+          }
+        }
+        for (const list of [urgList, emCursoList, aguardList]) {
+          for (const lead of list) {
+            lead.lastMessage = msgMap.get(lead.id) || undefined
+          }
+        }
+      }
+    }
 
     setUrgentes(urgList)
     setEmAtendimento(emCursoList)
@@ -293,18 +314,20 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
   const filteredLeads = getFilteredLeads()
 
   function renderLeadItem(lead: LeadWithMeta) {
-    const priority = getPriorityStyle(lead.score)
     const isSelected = lead.id === selectedLeadId
     const hasSearch = searchQuery.trim().length > 0
 
-    // Border-left by propensity score
+    // Border-left by propensity score (calorimetria)
     const borderLeftClass = lead.score >= 7
       ? 'border-l-4 border-l-score-hot'
       : lead.score >= 4
       ? 'border-l-4 border-l-score-warm'
       : 'border-l-4 border-l-score-cold'
 
-    const displayName = lead.nome || displayPhone(lead.telefone) || 'Lead'
+    const displayName = lead.nome || displayPhone(lead.telefone) || 'Contato'
+    const preview = lead.lastMessage
+      ? (lead.lastMessage.length > 45 ? lead.lastMessage.slice(0, 45) + '...' : lead.lastMessage)
+      : ''
 
     return (
       <div key={lead.id}
@@ -314,35 +337,32 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
             socket.emit('assumir_lead', { lead_id: lead.id, operador_id: operadorId })
           }
         }}
-        className={`px-3 py-2.5 cursor-pointer border-b border-border transition-colors ${
+        className={`px-3 py-3 cursor-pointer border-b border-border transition-colors ${
           isSelected ? 'bg-bg-surface-hover' : 'hover:bg-bg-surface-hover'
         } ${borderLeftClass}`}
       >
-        <div className="flex items-center gap-2.5">
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${priority.bg} ${priority.text}`}>
+        <div className="flex items-center gap-3">
+          {/* Avatar */}
+          <div className="w-10 h-10 rounded-full bg-bg-surface-hover flex items-center justify-center text-sm font-medium text-text-secondary shrink-0">
             {getInitials(lead.nome, lead.telefone)}
           </div>
+
+          {/* Content */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1">
+            {/* Row 1: Name + Time */}
+            <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-text-primary truncate">
                 {hasSearch ? highlightMatch(displayName, searchQuery) : displayName}
               </span>
-              {lead._tipo === 'reaquecido' && <span className="text-xs px-1 py-0.5 rounded bg-score-hot/10 text-score-hot font-medium">{COPY.indicadores.reativado}</span>}
-              {lead._tipo === 'cliente_reaquecido' && <span className="text-xs px-1 py-0.5 rounded bg-success/10 text-success font-medium">{COPY.indicadores.cliente}</span>}
-              {(lead as any).status_alegado === 'cliente_nao_encontrado' && <span className="text-xs px-1 py-0.5 rounded bg-warning/10 text-warning font-medium">{COPY.indicadores.alerta}</span>}
-              {lead._slaVencido && <span className="text-xs px-1 py-0.5 rounded bg-warning/10 text-warning font-mono font-medium">{COPY.indicadores.sla}</span>}
-            </div>
-            <div className="flex items-center gap-1 mt-0.5">
-              {lead.canal_origem && (
-                <span className={`text-xs px-1 py-0.5 rounded ${lead.canal_origem === 'telegram' ? 'bg-accent/10 text-accent' : 'bg-success/10 text-success'}`}>
-                  {lead.canal_origem === 'telegram' ? 'TG' : 'WA'}
-                </span>
-              )}
-              <span className="text-xs text-text-muted truncate">
-                {hasSearch && lead.telefone ? highlightMatch(lead.telefone, searchQuery) : (lead.area || '—')}
+              <span className="text-[11px] text-text-muted shrink-0 ml-2">
+                {timeAgo(lead.created_at)}
               </span>
-              <span className="text-xs font-mono text-text-muted ml-auto">{timeAgo(lead.created_at)}</span>
             </div>
+
+            {/* Row 2: Last message preview */}
+            <p className="text-xs text-text-muted truncate mt-0.5">
+              {preview || '\u00A0'}
+            </p>
           </div>
         </div>
       </div>

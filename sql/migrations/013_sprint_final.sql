@@ -30,3 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_identities_email
 INSERT INTO configuracoes_sla (chave, valor, descricao) VALUES
   ('tempo_auto_release_minutos', '30', 'Minutos sem resposta do operador antes de devolver o lead ao bot automaticamente')
 ON CONFLICT (chave) DO NOTHING;
+
+
+-- 8. Foto do perfil Telegram
+ALTER TABLE identities ADD COLUMN IF NOT EXISTS photo_url TEXT;
