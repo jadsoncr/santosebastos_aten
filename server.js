@@ -495,6 +495,8 @@ io.on('connection', (socket) => {
 
   // Nova mensagem (do operador humano)
   socket.on('nova_mensagem', async ({ lead_id, de, conteudo, tipo, operador_id, origem }) => {
+    console.log('[SEND START]', { lead_id, de, conteudo: conteudo?.slice(0, 50), tipo, origem, ts: new Date().toISOString() });
+
     const db = getSupabase();
     const { data, error } = await db
       .from('mensagens')
@@ -502,11 +504,16 @@ io.on('connection', (socket) => {
       .select()
       .single();
 
+    if (error) {
+      console.error('[DB ERROR]', { lead_id, error: error.message });
+    }
+
     if (!error && data) {
+      console.log('[DB SAVED]', { lead_id, message_id: data.id });
       io.emit('nova_mensagem_salva', data);
     }
 
-    // OUTBOUND: se mensagem do operador humano, enviar pro Telegram
+    // OUTBOUND: se mensagem do operador humano, enviar pro Telegram/WhatsApp
     if (origem === 'humano' && tipo !== 'nota_interna' && lead_id) {
       try {
         // Marcar lead como assumido por humano (silencia o bot)
@@ -514,22 +521,37 @@ io.on('connection', (socket) => {
 
         const { data: lead } = await db
           .from('leads')
-          .select('channel_user_id, canal_origem')
+          .select('channel_user_id, canal_origem, identity_id')
           .eq('id', lead_id)
           .maybeSingle();
 
-        if (lead?.channel_user_id && lead.canal_origem === 'telegram') {
-          await sendTelegram(lead.channel_user_id, conteudo);
+        console.log('[OUTBOUND PREP]', {
+          lead_id,
+          channel_user_id: lead?.channel_user_id || 'NULL',
+          canal_origem: lead?.canal_origem || 'NULL',
+          identity_id: lead?.identity_id || 'NULL',
+        });
+
+        if (!lead?.channel_user_id) {
+          console.error('[OUTBOUND BLOCKED] channel_user_id vazio', { lead_id });
+          return;
         }
-        if (lead?.channel_user_id && lead.canal_origem !== 'telegram' && process.env.WEBHOOK_N8N_URL) {
+
+        if (lead.canal_origem === 'telegram') {
+          await sendTelegram(lead.channel_user_id, conteudo);
+          console.log('[OUTBOUND SUCCESS]', { canal: 'telegram', channel_user_id: lead.channel_user_id });
+        } else if (process.env.WEBHOOK_N8N_URL) {
           await fetch(process.env.WEBHOOK_N8N_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ telefone: lead.channel_user_id, mensagem: conteudo }),
           });
+          console.log('[OUTBOUND SUCCESS]', { canal: 'whatsapp', channel_user_id: lead.channel_user_id });
+        } else {
+          console.warn('[OUTBOUND SKIP] canal não-telegram e WEBHOOK_N8N_URL não configurada', { canal_origem: lead.canal_origem });
         }
       } catch (outErr) {
-        console.error('[outbound] erro ao enviar:', outErr.message);
+        console.error('[OUTBOUND ERROR]', { lead_id, error: outErr.message, ts: new Date().toISOString() });
       }
     }
   });
