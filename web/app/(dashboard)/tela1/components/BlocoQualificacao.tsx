@@ -6,6 +6,7 @@ import { useSocket } from '@/components/providers/SocketProvider'
 import { useRouter } from 'next/navigation'
 import { displayPhone, telLink } from '@/utils/format'
 import PopupEnfileirar from './PopupEnfileirar'
+import { COPY } from '@/utils/copy'
 import type { Lead } from '../page'
 
 interface BlocoQualificacaoProps {
@@ -417,7 +418,7 @@ export default function BlocoQualificacao({
               onClick={() => setEditingTelefone(true)}
               className="text-xs text-accent hover:text-accent-hover mt-0.5"
             >
-              ✏️ Editar telefone
+              {COPY.qualificacao.editarTelefone}
             </button>
           </div>
         )}
@@ -429,7 +430,7 @@ export default function BlocoQualificacao({
           onClick={() => setShowIdentitySearch(!showIdentitySearch)}
           className="text-xs text-accent hover:text-accent-hover font-medium"
         >
-          🔗 Vincular a Identidade Existente
+          {COPY.qualificacao.vincularIdentidade}
         </button>
         {showIdentitySearch && (
           <div className="mt-2 space-y-2">
@@ -514,8 +515,8 @@ export default function BlocoQualificacao({
 
       {/* Internal Notes (Post-it) */}
       <div className="space-y-2">
-        <span className="text-xs text-text-muted block">Notas Internas</span>
-        <div className="bg-[#FFFBEB] border border-warning/30 rounded-md p-2 space-y-2">
+        <span className="text-xs text-text-muted block">{COPY.qualificacao.dossieEstrategico}</span>
+        <div className="bg-bg-surface border border-border rounded-md p-2 space-y-2">
           <textarea
             value={notaTexto}
             onChange={(e) => setNotaTexto(e.target.value)}
@@ -527,20 +528,20 @@ export default function BlocoQualificacao({
             }}
             placeholder="Escreva uma nota..."
             rows={2}
-            className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-muted resize-none focus:outline-none"
+            className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-muted resize-none focus:outline-none font-mono"
           />
           <button
             onClick={handleSaveNota}
             disabled={!notaTexto.trim()}
-            className="text-xs font-medium text-warning hover:text-warning/80 disabled:opacity-40"
+            className="text-xs font-medium text-accent hover:text-accent/80 disabled:opacity-40"
           >
-            📝 Salvar nota
+            {COPY.qualificacao.salvarNota}
           </button>
         </div>
         {notas.length > 0 && (
           <div className="space-y-1 max-h-32 overflow-y-auto">
             {notas.map((n) => (
-              <div key={n.id} className="text-xs bg-[#FFFBEB] border border-warning/20 rounded px-2 py-1">
+              <div key={n.id} className="text-xs bg-bg-surface border border-border rounded px-2 py-1 font-mono">
                 <p className="text-text-primary">{n.conteudo}</p>
                 <span className="text-text-muted text-[10px]">
                   {new Date(n.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
@@ -551,7 +552,7 @@ export default function BlocoQualificacao({
         )}
       </div>
 
-      {/* Chamar no WA */}
+      {/* Contato via WhatsApp */}
       <div>
         {waLink ? (
           <a
@@ -560,7 +561,7 @@ export default function BlocoQualificacao({
             rel="noopener noreferrer"
             className="w-full block text-center py-2 rounded-md text-sm font-medium bg-success/10 text-success hover:bg-success/20"
           >
-            Chamar no WA
+            {COPY.qualificacao.contatoWhatsApp}
           </a>
         ) : (
           <button
@@ -568,7 +569,7 @@ export default function BlocoQualificacao({
             title="Telefone não disponível"
             className="w-full py-2 rounded-md text-sm font-medium bg-success/10 text-success opacity-40 cursor-not-allowed"
           >
-            Chamar no WA
+            {COPY.qualificacao.contatoWhatsApp}
           </button>
         )}
       </div>

@@ -1,5 +1,7 @@
 'use client'
 
+import { COPY } from '@/utils/copy'
+
 interface Props {
   score: number
 }
@@ -13,7 +15,7 @@ export default function ScoreCircle({ score }: Props) {
     ? 'bg-score-warm/10 text-score-warm border-score-warm'
     : 'bg-score-cold/10 text-score-cold border-score-cold'
 
-  const label = isHot ? 'QUENTE' : isWarm ? 'MORNO' : 'FRIO'
+  const label = isHot ? COPY.score.alta : isWarm ? COPY.score.media : COPY.score.baixa
 
   return (
     <div className="flex flex-col items-center gap-1">

@@ -1,6 +1,7 @@
 'use client'
 
 import ScoreCircle from './ScoreCircle'
+import { COPY } from '@/utils/copy'
 import type { Lead } from '../page'
 
 interface CardBotTreeProps {
@@ -20,11 +21,11 @@ export default function CardBotTree({ lead, isCliente }: CardBotTreeProps) {
               : 'bg-accent/10 text-accent'
           }`}
         >
-          {isCliente ? '👤 CLIENTE' : '🎯 LEAD'}
+          {isCliente ? COPY.badges.carteiraAtiva : COPY.badges.prospecto}
         </span>
         {(lead as any).is_reaquecido && (
           <span className="text-xs px-2 py-1 rounded bg-score-hot/10 text-score-hot font-medium">
-            🔥 REAQUECIDO
+            {COPY.badges.reativado}
           </span>
         )}
       </div>

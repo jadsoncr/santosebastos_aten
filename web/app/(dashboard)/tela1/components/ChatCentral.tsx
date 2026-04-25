@@ -8,6 +8,7 @@ import SmartSnippets from './SmartSnippets'
 import PopupEnfileirar from './PopupEnfileirar'
 import PopupAguardando from './PopupAguardando'
 import { displayPhone, phoneTag } from '@/utils/format'
+import { COPY } from '@/utils/copy'
 import type { Lead } from '../page'
 
 interface Mensagem {
@@ -221,7 +222,7 @@ export default function ChatCentral({ lead }: Props) {
   if (!lead) {
     return (
       <div className="flex items-center justify-center h-full text-text-muted text-sm">
-        Selecione uma conversa
+        {COPY.chat.selecioneConversa}
       </div>
     )
   }
@@ -236,11 +237,11 @@ export default function ChatCentral({ lead }: Props) {
           </span>
           {isAssumido ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-accent/10 text-accent">
-              👤 Atendimento Humano
+              {COPY.chat.atendimentoHumano}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-warning/10 text-warning">
-              🤖 Automação Ativa
+              {COPY.chat.automacaoAtiva}
             </span>
           )}
         </div>
@@ -279,7 +280,7 @@ export default function ChatCentral({ lead }: Props) {
               <div key={msg.id} className="flex justify-center">
                 <div className="max-w-[70%] rounded-lg px-3 py-2 bg-note-internal text-text-primary text-sm border border-warning/30">
                   <div className="flex items-center gap-1 mb-1">
-                    <span className="text-xs font-medium text-warning">📝 Nota interna</span>
+                    <span className="text-xs font-medium text-warning">{COPY.chat.notaInterna}</span>
                   </div>
                   <p>{msg.conteudo}</p>
                   <span className="font-mono text-xs text-text-muted block mt-1">
@@ -347,7 +348,7 @@ export default function ChatCentral({ lead }: Props) {
                 : 'bg-bg-surface-hover text-text-secondary hover:bg-border'
             }`}
           >
-            {isNotaInterna ? '📝 Nota interna' : '💬 Mensagem'}
+            {isNotaInterna ? COPY.chat.notaInterna : COPY.chat.mensagem}
           </button>
         </div>
 

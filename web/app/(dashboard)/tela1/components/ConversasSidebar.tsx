@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useSocket } from '@/components/providers/SocketProvider'
 import { displayPhone } from '@/utils/format'
+import { COPY } from '@/utils/copy'
 import type { Lead } from '../page'
 
 interface Props {
@@ -166,10 +167,10 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1">
               <span className="text-sm font-medium text-text-primary truncate">{lead.nome || displayPhone(lead.telefone) || 'Lead'}</span>
-              {lead._tipo === 'reaquecido' && <span className="text-xs">🔥</span>}
-              {lead._tipo === 'cliente_reaquecido' && <span className="text-xs px-1 py-0.5 rounded bg-success/10 text-success">👤</span>}
-              {(lead as any).status_alegado === 'cliente_nao_encontrado' && <span className="text-xs px-1 py-0.5 rounded bg-warning/10 text-warning">⚠️</span>}
-              {slaVencido && <span className="text-xs px-1 py-0.5 rounded bg-warning/10 text-warning font-mono">⏰</span>}
+              {lead._tipo === 'reaquecido' && <span className="text-xs px-1 py-0.5 rounded bg-score-hot/10 text-score-hot font-medium">{COPY.indicadores.reativado}</span>}
+              {lead._tipo === 'cliente_reaquecido' && <span className="text-xs px-1 py-0.5 rounded bg-success/10 text-success font-medium">{COPY.indicadores.cliente}</span>}
+              {(lead as any).status_alegado === 'cliente_nao_encontrado' && <span className="text-xs px-1 py-0.5 rounded bg-warning/10 text-warning font-medium">{COPY.indicadores.alerta}</span>}
+              {slaVencido && <span className="text-xs px-1 py-0.5 rounded bg-warning/10 text-warning font-mono font-medium">{COPY.indicadores.sla}</span>}
             </div>
             <div className="flex items-center gap-1 mt-0.5">
               {lead.canal_origem && (
@@ -200,22 +201,22 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
   return (
     <div className="w-[280px] h-full bg-sidebar-bg overflow-y-auto flex flex-col">
       <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-        <span className="text-sm font-medium text-text-primary">Operação Ativa</span>
+        <span className="text-sm font-medium text-text-primary">{COPY.conversas.operacaoAtiva}</span>
         <span className="bg-accent/10 text-accent text-xs font-mono font-medium px-2 py-0.5 rounded-full">{total}</span>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <SectionHeader label="🔥 PRIORIDADE MÁXIMA" count={urgentes.length} color="text-error" section="urgente" />
+        <SectionHeader label={COPY.conversas.captacao} count={urgentes.length} color="text-error" section="urgente" />
         {!collapsed.urgente && urgentes.map(renderLeadItem)}
-        {!collapsed.urgente && urgentes.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">Nenhum lead urgente</p>}
+        {!collapsed.urgente && urgentes.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">{COPY.conversas.nenhumCaptacao}</p>}
 
-        <SectionHeader label="💬 EM CURSO" count={emAtendimento.length} color="text-accent" section="emCurso" />
+        <SectionHeader label={COPY.conversas.emAtendimento} count={emAtendimento.length} color="text-accent" section="emCurso" />
         {!collapsed.emCurso && emAtendimento.map(renderLeadItem)}
-        {!collapsed.emCurso && emAtendimento.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">Nenhum em curso</p>}
+        {!collapsed.emCurso && emAtendimento.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">{COPY.conversas.nenhumAtendimento}</p>}
 
-        <SectionHeader label="⏳ EM PAUSA" count={aguardando.length} color="text-warning" section="aguardando" />
+        <SectionHeader label={COPY.conversas.aguardandoRetorno} count={aguardando.length} color="text-warning" section="aguardando" />
         {!collapsed.aguardando && aguardando.map(renderLeadItem)}
-        {!collapsed.aguardando && aguardando.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">Nenhum aguardando</p>}
+        {!collapsed.aguardando && aguardando.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">{COPY.conversas.nenhumAguardando}</p>}
       </div>
     </div>
   )

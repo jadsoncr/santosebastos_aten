@@ -2,15 +2,17 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { COPY } from '@/utils/copy'
 
 interface SidebarProps {
   role: string
 }
 
 const links = [
-  { href: '/tela1', label: 'Entrada', icon: '📥' },
-  { href: '/tela2', label: 'Clientes', icon: '👥' },
-  { href: '/financeiro', label: 'Financeiro', icon: '💰', ownerOnly: true },
+  { href: '/tela1', label: COPY.sidebar.captacao },
+  { href: '/tela2', label: COPY.sidebar.carteira },
+  { href: '/financeiro', label: COPY.sidebar.financeiro, ownerOnly: true },
+  { href: '/backoffice/segmentos', label: COPY.sidebar.backoffice, ownerOnly: true },
 ]
 
 export default function Sidebar({ role }: SidebarProps) {
@@ -41,7 +43,6 @@ export default function Sidebar({ role }: SidebarProps) {
                       : 'text-text-muted hover:bg-bg-surface-hover hover:text-text-primary'
                   }`}
                 >
-                  <span>{link.icon}</span>
                   {link.label}
                 </Link>
               </li>
