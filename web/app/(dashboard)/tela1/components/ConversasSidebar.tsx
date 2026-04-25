@@ -5,6 +5,7 @@ import { createClient } from '@/utils/supabase/client'
 import { useSocket } from '@/components/providers/SocketProvider'
 import { displayPhone } from '@/utils/format'
 import { COPY } from '@/utils/copy'
+import { classificarInatividade, STATUS_STYLES, type LeadStatus } from '@/utils/businessHours'
 import type { Lead } from '../page'
 
 interface Props {
@@ -18,6 +19,7 @@ interface LeadWithMeta extends Lead {
   _prazoSla?: string
   lastMessage?: string
   unread?: boolean
+  _inactivityStatus?: LeadStatus
 }
 
 function timeAgo(dateStr: string): string {
@@ -61,7 +63,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<LeadWithMeta[]>([])
   const [isSearching, setIsSearching] = useState(false)
-  const [activePill, setActivePill] = useState<'tudo' | 'naoLidas' | 'retorno'>('tudo')
+  const [activePill, setActivePill] = useState<'tudo' | 'ativos' | 'esfriando' | 'sem_resposta'>('tudo')
   const [showNewContactModal, setShowNewContactModal] = useState(false)
   const [newContact, setNewContact] = useState({ nome: '', telefone: '', canal: 'whatsapp', segmento: '' })
   const [isSavingContact, setIsSavingContact] = useState(false)
@@ -158,6 +160,13 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
       }
     }
 
+    // Classify inactivity status based on last CLIENT message
+    for (const list of [urgList, emCursoList, aguardList]) {
+      for (const lead of list) {
+        lead._inactivityStatus = classificarInatividade(lead.ultima_msg_em || lead.created_at)
+      }
+    }
+
     setUrgentes(urgList)
     setEmAtendimento(emCursoList)
     setAguardando(aguardList)
@@ -250,22 +259,36 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
   // ── Filter leads by active pill ──
   function getFilteredLeads(): LeadWithMeta[] {
     const hasSearch = searchQuery.trim().length > 0
+    let leads: LeadWithMeta[]
 
     if (hasSearch) {
-      let results = [...searchResults]
-      if (activePill === 'retorno') {
-        const aguardandoIds = new Set(aguardando.map(l => l.id))
-        results = results.filter(l => aguardandoIds.has(l.id))
-      }
-      return results
+      leads = [...searchResults]
+    } else {
+      leads = getAllLeadsFlat()
     }
 
-    if (activePill === 'retorno') {
-      return aguardando
+    // Apply inactivity filter
+    if (activePill === 'ativos') {
+      leads = leads.filter(l => l._inactivityStatus === 'ativo')
+    } else if (activePill === 'esfriando') {
+      leads = leads.filter(l => l._inactivityStatus === 'esfriando')
+    } else if (activePill === 'sem_resposta') {
+      leads = leads.filter(l => l._inactivityStatus === 'sem_resposta')
     }
 
-    // 'tudo' and 'naoLidas' — flat list of all leads
-    return getAllLeadsFlat()
+    // Sort: ativos first, then esfriando, then sem_resposta
+    const statusOrder: Record<string, number> = { ativo: 0, esfriando: 1, sem_resposta: 2 }
+    leads.sort((a, b) => {
+      const orderA = statusOrder[a._inactivityStatus || 'sem_resposta'] ?? 2
+      const orderB = statusOrder[b._inactivityStatus || 'sem_resposta'] ?? 2
+      if (orderA !== orderB) return orderA - orderB
+      // Within same status, sort by most recent
+      const timeA = a.ultima_msg_em || a.created_at
+      const timeB = b.ultima_msg_em || b.created_at
+      return new Date(timeB).getTime() - new Date(timeA).getTime()
+    })
+
+    return leads
   }
 
   // ── New contact save ──
@@ -325,6 +348,8 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
 
   const total = urgentes.length + emAtendimento.length + aguardando.length
   const filteredLeads = getFilteredLeads()
+  const allFlat = getAllLeadsFlat()
+  const aguardandoCount = allFlat.filter(l => l._inactivityStatus === 'esfriando' || l._inactivityStatus === 'sem_resposta').length
 
   function renderLeadItem(lead: LeadWithMeta) {
     const isSelected = lead.id === selectedLeadId
@@ -362,14 +387,21 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
 
           {/* Content */}
           <div className="flex-1 min-w-0">
-            {/* Row 1: Name + Time */}
+            {/* Row 1: Name + Time + Status tag */}
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-text-primary truncate">
                 {hasSearch ? highlightMatch(displayName, searchQuery) : displayName}
               </span>
-              <span className="text-[11px] text-text-muted shrink-0 ml-2">
-                {timeAgo(lead.ultima_msg_em || lead.created_at)}
-              </span>
+              <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                {lead._inactivityStatus && lead._inactivityStatus !== 'ativo' && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_STYLES[lead._inactivityStatus].bg} ${STATUS_STYLES[lead._inactivityStatus].text}`}>
+                    {STATUS_STYLES[lead._inactivityStatus].label}
+                  </span>
+                )}
+                <span className="text-[11px] text-text-muted">
+                  {timeAgo(lead.ultima_msg_em || lead.created_at)}
+                </span>
+              </div>
             </div>
 
             {/* Row 2: Last message preview */}
@@ -382,7 +414,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
     )
   }
 
-  const pillClasses = (pill: 'tudo' | 'naoLidas' | 'retorno') =>
+  const pillClasses = (pill: 'tudo' | 'ativos' | 'esfriando' | 'sem_resposta') =>
     `px-3 py-1 rounded-full text-xs font-medium transition-colors ${
       activePill === pill
         ? 'bg-accent text-white'
@@ -392,9 +424,14 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
   return (
     <div className="w-[280px] h-full bg-sidebar-bg overflow-y-auto flex flex-col">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-        <span className="text-sm font-medium text-text-primary">{COPY.conversas.operacaoAtiva}</span>
-        <span className="bg-accent/10 text-accent text-xs font-mono font-medium px-2 py-0.5 rounded-full">{total}</span>
+      <div className="px-4 py-3 border-b border-border">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-text-primary">{COPY.conversas.operacaoAtiva}</span>
+          <span className="bg-accent/10 text-accent text-xs font-mono font-medium px-2 py-0.5 rounded-full">{total}</span>
+        </div>
+        {aguardandoCount > 0 && (
+          <p className="text-[11px] text-text-muted mt-1">{aguardandoCount} leads aguardando resposta</p>
+        )}
       </div>
 
       {/* Search bar + "+" button */}
@@ -424,15 +461,10 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
 
       {/* Filter pills */}
       <div className="px-3 pb-2 flex items-center gap-1.5">
-        <button className={pillClasses('tudo')} onClick={() => setActivePill('tudo')}>
-          {COPY.pills.tudo}
-        </button>
-        <button className={pillClasses('naoLidas')} onClick={() => setActivePill('naoLidas')}>
-          {COPY.pills.naoLidas}
-        </button>
-        <button className={pillClasses('retorno')} onClick={() => setActivePill('retorno')}>
-          {COPY.pills.retorno}
-        </button>
+        <button className={pillClasses('tudo')} onClick={() => setActivePill('tudo')}>Todos</button>
+        <button className={pillClasses('ativos')} onClick={() => setActivePill('ativos')}>Ativos</button>
+        <button className={pillClasses('esfriando')} onClick={() => setActivePill('esfriando')}>Esfriando</button>
+        <button className={pillClasses('sem_resposta')} onClick={() => setActivePill('sem_resposta')}>Sem resposta</button>
       </div>
 
       {/* Lead list — FLAT, no sections */}
