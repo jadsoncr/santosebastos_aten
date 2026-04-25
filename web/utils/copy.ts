@@ -99,6 +99,14 @@ export const COPY = {
     FINALIZADO: 'Finalizado',
   },
 
+  // ── Botoeira de Jornada ──────────────────────────────────────
+  botoeira: {
+    agendarReuniao: 'Agendar Reunião',
+    solicitarDados: 'Solicitar Dados',
+    enviarProposta: 'Enviar Proposta',
+    gerarContrato: 'Gerar Contrato',
+  },
+
   // ── Ações rápidas (timeline) ───────────────────────────────
   acoes: {
     agendarReuniao: 'Agendar Reunião',

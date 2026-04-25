@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useSocket } from '@/components/providers/SocketProvider'
 import { useRouter } from 'next/navigation'
@@ -59,6 +59,10 @@ export default function BlocoQualificacao({
   const [editingTelefone, setEditingTelefone] = useState(false)
   const [telefoneValue, setTelefoneValue] = useState(lead.telefone || '')
 
+  // Editable email (Change A)
+  const [editingEmail, setEditingEmail] = useState(false)
+  const [emailValue, setEmailValue] = useState(lead.email || '')
+
   // Identity linking (task 6.3)
   const [showIdentitySearch, setShowIdentitySearch] = useState(false)
   const [identityQuery, setIdentityQuery] = useState('')
@@ -75,9 +79,15 @@ export default function BlocoQualificacao({
   // Valor estimado
   const [valorEstimado, setValorEstimado] = useState('')
 
-  // Internal notes (Post-it)
+  // Internal notes (Dossiê Estratégico) — auto-save on blur (Change B)
   const [notaTexto, setNotaTexto] = useState('')
   const [notas, setNotas] = useState<Nota[]>([])
+  const [notaSalva, setNotaSalva] = useState(false)
+  const notaSalvaTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Converter validation (Change D)
+  const [valorEntrada, setValorEntrada] = useState('')
+  const [contratoAssinado, setContratoAssinado] = useState(false)
 
   // Popups
   const [showEnfileirar, setShowEnfileirar] = useState(false)
@@ -97,9 +107,13 @@ export default function BlocoQualificacao({
   useEffect(() => {
     setNomeValue(lead.nome || '')
     setTelefoneValue(lead.telefone || '')
+    setEmailValue(lead.email || '')
     setValorEstimado('')
+    setValorEntrada('')
+    setContratoAssinado(false)
     setEditingNome(false)
     setEditingTelefone(false)
+    setEditingEmail(false)
     setShowEnfileirar(false)
     setShowMotivoPopup(false)
     setShowConversaoPopup(false)
@@ -108,8 +122,16 @@ export default function BlocoQualificacao({
     setIdentityResults([])
     setIdentitySearchDone(false)
     setNotaTexto('')
+    setNotaSalva(false)
     loadNotas()
   }, [lead.id])
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (notaSalvaTimerRef.current) clearTimeout(notaSalvaTimerRef.current)
+    }
+  }, [])
 
   // Load segment tree on mount
   useEffect(() => {
@@ -182,6 +204,26 @@ export default function BlocoQualificacao({
     setEditingTelefone(false)
   }
 
+  // --- Email editing (Change A) ---
+  async function saveEmail() {
+    if (!emailValue.trim()) {
+      setEditingEmail(false)
+      setEmailValue(lead.email || '')
+      return
+    }
+    const trimmed = emailValue.trim()
+    const { data: leadData } = await supabase
+      .from('leads')
+      .select('identity_id')
+      .eq('id', lead.id)
+      .maybeSingle()
+    if (leadData?.identity_id) {
+      await supabase.from('identities').update({ email: trimmed }).eq('id', leadData.identity_id)
+    }
+    onLeadUpdate({ ...lead, email: trimmed })
+    setEditingEmail(false)
+  }
+
   // --- Identity linking (task 6.3) ---
   async function searchIdentities(query: string) {
     if (!query.trim()) {
@@ -201,7 +243,6 @@ export default function BlocoQualificacao({
   }
 
   async function linkToIdentity(targetIdentityId: string) {
-    // Get current identity_id
     const { data: leadData } = await supabase
       .from('leads')
       .select('identity_id')
@@ -209,20 +250,17 @@ export default function BlocoQualificacao({
       .maybeSingle()
 
     if (leadData?.identity_id) {
-      // Transfer identity_channels from current identity to target
       await supabase
         .from('identity_channels')
         .update({ identity_id: targetIdentityId })
         .eq('identity_id', leadData.identity_id)
     }
 
-    // Update lead's identity_id
     await supabase
       .from('leads')
       .update({ identity_id: targetIdentityId })
       .eq('id', lead.id)
 
-    // Reload lead data
     const { data: updatedLead } = await supabase
       .from('leads')
       .select('*')
@@ -267,7 +305,7 @@ export default function BlocoQualificacao({
       .eq('lead_id', lead.id)
   }
 
-  // --- Internal notes ---
+  // --- Internal notes — auto-save on blur (Change B) ---
   async function handleSaveNota() {
     if (!notaTexto.trim() || !operadorId) return
     await supabase.from('mensagens').insert({
@@ -279,9 +317,117 @@ export default function BlocoQualificacao({
     })
     setNotaTexto('')
     loadNotas()
+    // Show "Salvo" feedback
+    setNotaSalva(true)
+    if (notaSalvaTimerRef.current) clearTimeout(notaSalvaTimerRef.current)
+    notaSalvaTimerRef.current = setTimeout(() => setNotaSalva(false), 1500)
   }
 
-  // --- Conversão ---
+  function handleNotaBlur() {
+    if (notaTexto.trim()) {
+      handleSaveNota()
+    }
+  }
+
+  // --- Botoeira de Jornada handlers (Change C) ---
+  async function handleAgendarReuniao() {
+    if (!socket || !lead || !operadorId) return
+    const data = prompt('Data da reunião (DD/MM/YYYY HH:MM):')
+    if (!data) return
+    const local = prompt('Local/Link:')
+    if (!local) return
+
+    // Update atendimento
+    await supabase.from('atendimentos').update({
+      location: 'backoffice',
+      agendamento_data: new Date(data.split('/').reverse().join('-')).toISOString(),
+      agendamento_local: local,
+    }).eq('lead_id', lead.id)
+
+    // Timeline event
+    await supabase.from('timeline_events').insert({
+      lead_id: lead.id,
+      tipo: 'reuniao_agendada',
+      descricao: `Reunião agendada: ${data} - ${local}`,
+      operador_id: operadorId,
+      metadata: { data, local },
+    })
+
+    // Pipeline transition
+    socket.emit('pipeline_transition', {
+      lead_id: lead.id,
+      target_stage: 'AGENDAMENTO',
+      conditions: { agendamento_data: data, agendamento_local: local },
+    })
+  }
+
+  async function handleSolicitarDados() {
+    if (!socket || !lead || !operadorId) return
+    const docs = prompt('Quais documentos solicitar?')
+    if (!docs) return
+
+    await supabase.from('timeline_events').insert({
+      lead_id: lead.id,
+      tipo: 'documento_solicitado',
+      descricao: `Documentos solicitados: ${docs}`,
+      operador_id: operadorId,
+      metadata: { documentos: docs },
+    })
+
+    socket.emit('pipeline_transition', {
+      lead_id: lead.id,
+      target_stage: 'DEVOLUTIVA',
+      conditions: { documento_enviado: true },
+    })
+  }
+
+  async function handleEnviarProposta() {
+    if (!socket || !lead || !operadorId) return
+    const valor = prompt('Valor da proposta (R$):')
+    if (!valor) return
+
+    await supabase.from('atendimentos').update({
+      valor_estimado: parseFloat(valor),
+    }).eq('lead_id', lead.id)
+
+    await supabase.from('timeline_events').insert({
+      lead_id: lead.id,
+      tipo: 'proposta_enviada',
+      descricao: `Proposta enviada: R$ ${valor}`,
+      operador_id: operadorId,
+      metadata: { valor },
+    })
+
+    socket.emit('pipeline_transition', {
+      lead_id: lead.id,
+      target_stage: 'PAGAMENTO_PENDENTE',
+      conditions: { documento_assinado: true },
+    })
+  }
+
+  async function handleGerarContrato() {
+    if (!socket || !lead || !operadorId) return
+
+    await supabase.from('atendimentos').update({
+      documento_enviado: true,
+    }).eq('lead_id', lead.id)
+
+    await supabase.from('timeline_events').insert({
+      lead_id: lead.id,
+      tipo: 'contrato_gerado',
+      descricao: 'Contrato gerado e enviado ao cliente',
+      operador_id: operadorId,
+      metadata: { documento_enviado: true },
+    })
+
+    socket.emit('pipeline_transition', {
+      lead_id: lead.id,
+      target_stage: 'DEVOLUTIVA',
+      conditions: { documento_enviado: true },
+    })
+  }
+
+  // --- Conversão (Change D — enhanced validation) ---
   async function handleConversao() {
     if (!operadorId) return
     setLoading(true)
@@ -302,6 +448,8 @@ export default function BlocoQualificacao({
           classificacao_final: segmentNodes.find(n => n.id === selectedSegmento)?.nome || lead.area,
           valor_contrato: valorContrato ? parseFloat(valorContrato) : null,
           status_pagamento: statusPagamento,
+          valor_entrada: valorEntrada ? parseFloat(valorEntrada) : null,
+          contrato_assinado: contratoAssinado,
           encerrado_em: new Date().toISOString(),
         })
         .eq('lead_id', lead.id)
@@ -361,6 +509,8 @@ export default function BlocoQualificacao({
     return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`
   }
 
+  // Change D: CONVERTER enabled only when email + valorEntrada + contratoAssinado + segmento
+  const converterEnabled = !!emailValue.trim() && parseFloat(valorEntrada) > 0 && contratoAssinado && !!selectedSegmento && isAssumido
   const desfechoEnabled = !!selectedSegmento && isAssumido
   const waLink = buildWaLink()
 
@@ -417,6 +567,31 @@ export default function BlocoQualificacao({
               {COPY.qualificacao.editarTelefone}
             </button>
           </div>
+        )}
+      </div>
+
+      {/* Editable email (Change A) */}
+      <div>
+        <span className="text-xs text-text-muted block mb-1">E-mail</span>
+        {editingEmail ? (
+          <input
+            autoFocus
+            type="email"
+            value={emailValue}
+            onChange={(e) => setEmailValue(e.target.value)}
+            onBlur={saveEmail}
+            onKeyDown={(e) => { if (e.key === 'Enter') saveEmail() }}
+            className="w-full rounded-md border border-accent bg-bg-primary px-2 py-1 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
+            placeholder="email@exemplo.com"
+          />
+        ) : (
+          <p
+            onClick={() => setEditingEmail(true)}
+            className="text-sm text-text-primary cursor-pointer hover:text-accent transition-colors"
+            title="Clique para editar"
+          >
+            {emailValue || lead.email || '—'}
+          </p>
         )}
       </div>
 
@@ -513,13 +688,35 @@ export default function BlocoQualificacao({
         {!selectedSegmento && <p className="text-xs text-warning mt-1">Selecione o segmento para habilitar os desfechos</p>}
       </div>
 
-      {/* Internal Notes (Post-it) */}
+      {/* Botoeira de Jornada — 4 action buttons (Change C) */}
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={handleAgendarReuniao} className="px-2 py-1.5 rounded-md text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20">
+          {COPY.botoeira.agendarReuniao}
+        </button>
+        <button onClick={handleSolicitarDados} className="px-2 py-1.5 rounded-md text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20">
+          {COPY.botoeira.solicitarDados}
+        </button>
+        <button onClick={handleEnviarProposta} className="px-2 py-1.5 rounded-md text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20">
+          {COPY.botoeira.enviarProposta}
+        </button>
+        <button onClick={handleGerarContrato} className="px-2 py-1.5 rounded-md text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20">
+          {COPY.botoeira.gerarContrato}
+        </button>
+      </div>
+
+      {/* Dossiê Estratégico — auto-save on blur (Change B) */}
       <div className="space-y-2">
-        <span className="text-xs text-text-muted block">{COPY.qualificacao.dossieEstrategico}</span>
-        <div className="bg-bg-surface border border-border rounded-md p-2 space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-text-muted">{COPY.qualificacao.dossieEstrategico}</span>
+          {notaSalva && (
+            <span className="text-xs text-success animate-pulse">Salvo</span>
+          )}
+        </div>
+        <div className="bg-bg-surface border border-border rounded-md p-2">
           <textarea
             value={notaTexto}
             onChange={(e) => setNotaTexto(e.target.value)}
+            onBlur={handleNotaBlur}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
@@ -530,13 +727,6 @@ export default function BlocoQualificacao({
             rows={2}
             className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-muted resize-none focus:outline-none font-mono"
           />
-          <button
-            onClick={handleSaveNota}
-            disabled={!notaTexto.trim()}
-            className="text-xs font-medium text-accent hover:text-accent/80 disabled:opacity-40"
-          >
-            {COPY.qualificacao.salvarNota}
-          </button>
         </div>
         {notas.length > 0 && (
           <div className="space-y-1 max-h-32 overflow-y-auto">
@@ -591,6 +781,33 @@ export default function BlocoQualificacao({
         </div>
       )}
 
+      {/* Converter validation fields (Change D) */}
+      {!isCliente && (
+        <div className="space-y-3 border-t border-border pt-3">
+          <div>
+            <span className="text-xs text-text-muted block mb-1">{COPY.qualificacao.valorEntrada}</span>
+            <input
+              type="number"
+              value={valorEntrada}
+              onChange={(e) => setValorEntrada(e.target.value)}
+              placeholder="0,00"
+              disabled={!isAssumido}
+              className="w-full rounded-md border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+            />
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={contratoAssinado}
+              onChange={(e) => setContratoAssinado(e.target.checked)}
+              disabled={!isAssumido}
+              className="rounded border-border text-accent focus:ring-accent disabled:opacity-40"
+            />
+            <span className="text-xs text-text-primary">Contrato Assinado</span>
+          </label>
+        </div>
+      )}
+
       {/* Action buttons */}
       <div className="space-y-2">
         {isCliente ? (
@@ -604,8 +821,9 @@ export default function BlocoQualificacao({
           <>
             <button
               onClick={() => setShowConversaoPopup(true)}
-              disabled={!desfechoEnabled || loading}
+              disabled={!converterEnabled || loading}
               className="w-full py-2 rounded-md text-sm font-medium bg-success text-white hover:bg-success/90 disabled:opacity-40 disabled:cursor-not-allowed"
+              title={!converterEnabled ? 'Preencha e-mail, valor de entrada, marque contrato assinado e selecione segmento' : ''}
             >
               CONVERTER — VIRAR CLIENTE
             </button>

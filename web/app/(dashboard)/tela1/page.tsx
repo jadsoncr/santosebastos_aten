@@ -27,6 +27,7 @@ export interface Lead {
   segmento_id?: string | null
   assunto_id?: string | null
   especificacao_id?: string | null
+  email?: string | null
 }
 
 export default function Tela1Page() {

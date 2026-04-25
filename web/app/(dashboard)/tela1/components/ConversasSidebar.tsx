@@ -341,7 +341,6 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
               <span className="text-xs text-text-muted truncate">
                 {hasSearch && lead.telefone ? highlightMatch(lead.telefone, searchQuery) : (lead.area || '—')}
               </span>
-              <span className="text-xs font-mono text-text-muted">· {lead.score}pts</span>
               <span className="text-xs font-mono text-text-muted ml-auto">{timeAgo(lead.created_at)}</span>
             </div>
           </div>
