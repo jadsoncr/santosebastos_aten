@@ -641,6 +641,7 @@ async function sweepOperacao() {
   let snoozeMinutos = 60;
   let abandonoTriagemHoras = 2;
   let abandonoAtendimentoHoras = 24;
+  let autoReleaseMinutos = 30;
 
   try {
     const { data: slaConfigs } = await db.from('configuracoes_sla').select('chave, valor');
@@ -649,6 +650,7 @@ async function sweepOperacao() {
         if (cfg.chave === 'tempo_snooze_minutos') snoozeMinutos = parseInt(cfg.valor) || 60;
         if (cfg.chave === 'tempo_abandono_triagem_horas') abandonoTriagemHoras = parseInt(cfg.valor) || 2;
         if (cfg.chave === 'tempo_abandono_atendimento_horas') abandonoAtendimentoHoras = parseInt(cfg.valor) || 24;
+        if (cfg.chave === 'tempo_auto_release_minutos') autoReleaseMinutos = parseInt(cfg.valor) || 30;
       }
     }
   } catch (e) { console.error('[sweep] SLA config read fail:', e.message); }
@@ -656,9 +658,40 @@ async function sweepOperacao() {
   const SNOOZE_THRESHOLD = snoozeMinutos * 60 * 1000;
   const ABANDONO_TRIAGEM = abandonoTriagemHoras * 60 * 60 * 1000;
   const ABANDONO_ATENDIMENTO = abandonoAtendimentoHoras * 60 * 60 * 1000;
+  const AUTO_RELEASE_THRESHOLD = autoReleaseMinutos * 60 * 1000;
 
   try {
-    // 1. Auto-Snooze: última msg do operador, cliente não respondeu em 30min
+    // 0. Auto-Release: devolver ao bot se operador não responde há X minutos
+    const { data: leadsAssumidos } = await db
+      .from('leads')
+      .select('id, ultima_msg_em, ultima_msg_de')
+      .eq('is_assumido', true)
+      .not('ultima_msg_em', 'is', null);
+
+    if (leadsAssumidos) {
+      for (const lead of leadsAssumidos) {
+        if (!lead.ultima_msg_em) continue;
+        const diff = agora.getTime() - new Date(lead.ultima_msg_em).getTime();
+        // Se última msg foi do operador e cliente não respondeu, OU
+        // se última msg foi do cliente e operador não respondeu — em ambos os casos,
+        // se passou o threshold, devolver ao bot
+        if (diff > AUTO_RELEASE_THRESHOLD) {
+          await db.from('leads').update({
+            is_assumido: false,
+            status_triagem: 'bot_ativo',
+          }).eq('id', lead.id);
+          console.log(JSON.stringify({
+            level: 'info',
+            msg: 'auto_release_bot',
+            lead_id: lead.id,
+            inatividade_min: Math.floor(diff / 60000),
+            ts: agora.toISOString(),
+          }));
+        }
+      }
+    }
+
+    // 1. Auto-Snooze: última msg do operador, cliente não respondeu
     const { data: leadsAtivos } = await db
       .from('leads')
       .select('id, ultima_msg_de, ultima_msg_em')

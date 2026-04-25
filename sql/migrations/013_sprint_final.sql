@@ -24,3 +24,9 @@ CREATE INDEX IF NOT EXISTS idx_atendimentos_location
 -- 6. Índice para busca de email
 CREATE INDEX IF NOT EXISTS idx_identities_email
   ON identities(email);
+
+
+-- 7. SLA config para auto-release do silenciador (devolver ao bot)
+INSERT INTO configuracoes_sla (chave, valor, descricao) VALUES
+  ('tempo_auto_release_minutos', '30', 'Minutos sem resposta do operador antes de devolver o lead ao bot automaticamente')
+ON CONFLICT (chave) DO NOTHING;
