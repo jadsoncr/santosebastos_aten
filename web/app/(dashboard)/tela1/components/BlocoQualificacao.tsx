@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation'
 import { displayPhone, telLink } from '@/utils/format'
 import PopupEnfileirar from './PopupEnfileirar'
 import { COPY } from '@/utils/copy'
+import { filterChildren } from '@/utils/segmentTree'
+import type { SegmentNode } from '@/utils/segmentTree'
 import type { Lead } from '../page'
 
 interface BlocoQualificacaoProps {
@@ -64,12 +66,11 @@ export default function BlocoQualificacao({
   const [identitySearchLoading, setIdentitySearchLoading] = useState(false)
   const [identitySearchDone, setIdentitySearchDone] = useState(false)
 
-  // Area dropdown
-  const [areaHumano, setAreaHumano] = useState<string | null>(lead.area_humano || lead.area_bot || lead.area || null)
-  const [areas, setAreas] = useState<string[]>([])
-  const [showAreaDropdown, setShowAreaDropdown] = useState(false)
-  const [showAddArea, setShowAddArea] = useState(false)
-  const [newArea, setNewArea] = useState('')
+  // Segment tree state
+  const [segmentNodes, setSegmentNodes] = useState<SegmentNode[]>([])
+  const [selectedSegmento, setSelectedSegmento] = useState<string | null>(null)
+  const [selectedAssunto, setSelectedAssunto] = useState<string | null>(null)
+  const [selectedEspecificacao, setSelectedEspecificacao] = useState<string | null>(null)
 
   // Valor estimado
   const [valorEstimado, setValorEstimado] = useState('')
@@ -96,7 +97,6 @@ export default function BlocoQualificacao({
   useEffect(() => {
     setNomeValue(lead.nome || '')
     setTelefoneValue(lead.telefone || '')
-    setAreaHumano(lead.area_humano || lead.area_bot || lead.area || null)
     setValorEstimado('')
     setEditingNome(false)
     setEditingTelefone(false)
@@ -111,18 +111,25 @@ export default function BlocoQualificacao({
     loadNotas()
   }, [lead.id])
 
+  // Load segment tree on mount
   useEffect(() => {
-    loadAreas()
+    async function loadSegments() {
+      const { data } = await supabase
+        .from('segment_trees')
+        .select('*')
+        .eq('ativo', true)
+        .order('nome')
+      if (data) setSegmentNodes(data as SegmentNode[])
+    }
+    loadSegments()
   }, [])
 
-  async function loadAreas() {
-    const { data } = await supabase
-      .from('areas_juridicas')
-      .select('nome')
-      .eq('ativo', true)
-      .order('nome')
-    if (data) setAreas(data.map((a) => a.nome))
-  }
+  // Initialize selections from lead data
+  useEffect(() => {
+    setSelectedSegmento((lead as any).segmento_id || null)
+    setSelectedAssunto((lead as any).assunto_id || null)
+    setSelectedEspecificacao((lead as any).especificacao_id || null)
+  }, [lead.id])
 
   async function loadNotas() {
     const { data } = await supabase
@@ -232,35 +239,23 @@ export default function BlocoQualificacao({
     setIdentitySearchDone(false)
   }
 
-  // --- Area change ---
-  const handleAreaChange = async (newAreaVal: string) => {
-    if (!operadorId) return
-    setAreaHumano(newAreaVal)
-    setShowAreaDropdown(false)
-    if (newAreaVal !== (lead.area_bot || lead.area)) {
-      await supabase.from('bot_feedback').insert({
-        lead_id: lead.id,
-        area_bot: lead.area_bot || lead.area || '',
-        area_humano: newAreaVal,
-        operador_id: operadorId,
-      })
-      await supabase
-        .from('leads')
-        .update({ corrigido: true, area_humano: newAreaVal })
-        .eq('id', lead.id)
-      onLeadUpdate({ ...lead, area_humano: newAreaVal, corrigido: true })
-    } else {
-      await supabase.from('leads').update({ area_humano: newAreaVal }).eq('id', lead.id)
-      onLeadUpdate({ ...lead, area_humano: newAreaVal })
-    }
+  // --- Cascading dropdown handlers ---
+  async function handleSegmentoChange(segmentoId: string) {
+    setSelectedSegmento(segmentoId)
+    setSelectedAssunto(null)
+    setSelectedEspecificacao(null)
+    await supabase.from('leads').update({ segmento_id: segmentoId, assunto_id: null, especificacao_id: null }).eq('id', lead.id)
   }
 
-  const handleAddArea = async () => {
-    if (!newArea.trim()) return
-    await supabase.from('areas_juridicas').insert({ nome: newArea.trim() })
-    setNewArea('')
-    setShowAddArea(false)
-    loadAreas()
+  async function handleAssuntoChange(assuntoId: string) {
+    setSelectedAssunto(assuntoId)
+    setSelectedEspecificacao(null)
+    await supabase.from('leads').update({ assunto_id: assuntoId, especificacao_id: null }).eq('id', lead.id)
+  }
+
+  async function handleEspecificacaoChange(especificacaoId: string) {
+    setSelectedEspecificacao(especificacaoId)
+    await supabase.from('leads').update({ especificacao_id: especificacaoId }).eq('id', lead.id)
   }
 
   // --- Valor estimado ---
@@ -304,7 +299,7 @@ export default function BlocoQualificacao({
         .from('atendimentos')
         .update({
           status: 'convertido',
-          classificacao_final: areaHumano || lead.area,
+          classificacao_final: segmentNodes.find(n => n.id === selectedSegmento)?.nome || lead.area,
           valor_contrato: valorContrato ? parseFloat(valorContrato) : null,
           status_pagamento: statusPagamento,
           encerrado_em: new Date().toISOString(),
@@ -337,7 +332,7 @@ export default function BlocoQualificacao({
         .update({
           status: 'nao_fechou',
           motivo_perda: motivoSelecionado,
-          classificacao_final: areaHumano || lead.area,
+          classificacao_final: segmentNodes.find(n => n.id === selectedSegmento)?.nome || lead.area,
           encerrado_em: new Date().toISOString(),
         })
         .eq('lead_id', lead.id)
@@ -356,7 +351,8 @@ export default function BlocoQualificacao({
     if (!lead.telefone) return null
     const phone = lead.telefone.replace(/\D/g, '')
     const nome = lead.nome || 'cliente'
-    const area = areaHumano || lead.area_bot || lead.area || 'seu caso'
+    const segmentoNode = segmentNodes.find(n => n.id === selectedSegmento)
+    const area = segmentoNode?.nome || lead.area_bot || lead.area || 'seu caso'
 
     const msg = isCliente
       ? `Oi ${nome}, estou acessando seu prontuário de ${area} para te dar um retorno.`
@@ -365,7 +361,7 @@ export default function BlocoQualificacao({
     return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`
   }
 
-  const desfechoEnabled = !!areaHumano && isAssumido
+  const desfechoEnabled = !!selectedSegmento && isAssumido
   const waLink = buildWaLink()
 
   return (
@@ -465,52 +461,56 @@ export default function BlocoQualificacao({
         )}
       </div>
 
-      {/* Area dropdown */}
-      <div className="relative">
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-text-muted">Área (operador) *</span>
-          <button onClick={() => setShowAddArea(true)} className="text-xs text-accent hover:text-accent-hover font-bold">
-            +
-          </button>
-        </div>
-        <button
-          onClick={() => setShowAreaDropdown(!showAreaDropdown)}
-          className="mt-1 inline-block px-2 py-1 rounded-full text-xs bg-accent/10 text-accent cursor-pointer hover:bg-accent/20"
-        >
-          {areaHumano || 'Selecionar'} ▾
-        </button>
-        {showAreaDropdown && (
-          <div className="absolute top-full left-0 mt-1 bg-bg-primary border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto">
-            {areas.map((area) => (
-              <button
-                key={area}
-                onClick={() => handleAreaChange(area)}
-                className={`block w-full text-left px-3 py-1.5 text-xs hover:bg-bg-surface-hover ${
-                  area === areaHumano ? 'text-accent font-medium' : 'text-text-primary'
-                }`}
-              >
-                {area}
-              </button>
+      {/* Cascading Segment Dropdowns */}
+      <div className="space-y-2">
+        {/* Segmento (Level 1) */}
+        <div>
+          <span className="text-xs text-text-muted block mb-1">{COPY.qualificacao.segmento}</span>
+          <select
+            value={selectedSegmento || ''}
+            onChange={(e) => handleSegmentoChange(e.target.value)}
+            className="w-full rounded-md border border-border bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+          >
+            <option value="">Selecionar...</option>
+            {filterChildren(segmentNodes, null, 1).map(n => (
+              <option key={n.id} value={n.id}>{n.nome}</option>
             ))}
-          </div>
-        )}
-        {showAddArea && (
-          <div className="mt-2 flex gap-1">
-            <input
-              value={newArea}
-              onChange={(e) => setNewArea(e.target.value)}
-              placeholder="Nova área"
-              className="flex-1 rounded-md border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary"
-            />
-            <button onClick={handleAddArea} className="px-2 py-1 rounded-md text-xs bg-accent text-text-on-accent">
-              OK
-            </button>
-            <button onClick={() => setShowAddArea(false)} className="px-2 py-1 rounded-md text-xs text-text-muted">
-              ✕
-            </button>
-          </div>
-        )}
-        {!areaHumano && <p className="text-xs text-warning mt-1">Selecione a área para habilitar os desfechos</p>}
+          </select>
+        </div>
+
+        {/* Assunto (Level 2) */}
+        <div>
+          <span className="text-xs text-text-muted block mb-1">{COPY.qualificacao.assunto}</span>
+          <select
+            value={selectedAssunto || ''}
+            onChange={(e) => handleAssuntoChange(e.target.value)}
+            disabled={!selectedSegmento || filterChildren(segmentNodes, selectedSegmento, 2).length === 0}
+            className="w-full rounded-md border border-border bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+          >
+            <option value="">{selectedSegmento && filterChildren(segmentNodes, selectedSegmento, 2).length === 0 ? COPY.qualificacao.nenhumaOpcao : 'Selecionar...'}</option>
+            {filterChildren(segmentNodes, selectedSegmento, 2).map(n => (
+              <option key={n.id} value={n.id}>{n.nome}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Especificação (Level 3) */}
+        <div>
+          <span className="text-xs text-text-muted block mb-1">{COPY.qualificacao.especificacao}</span>
+          <select
+            value={selectedEspecificacao || ''}
+            onChange={(e) => handleEspecificacaoChange(e.target.value)}
+            disabled={!selectedAssunto || filterChildren(segmentNodes, selectedAssunto, 3).length === 0}
+            className="w-full rounded-md border border-border bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+          >
+            <option value="">{selectedAssunto && filterChildren(segmentNodes, selectedAssunto, 3).length === 0 ? COPY.qualificacao.nenhumaOpcao : 'Selecionar...'}</option>
+            {filterChildren(segmentNodes, selectedAssunto, 3).map(n => (
+              <option key={n.id} value={n.id}>{n.nome}</option>
+            ))}
+          </select>
+        </div>
+
+        {!selectedSegmento && <p className="text-xs text-warning mt-1">Selecione o segmento para habilitar os desfechos</p>}
       </div>
 
       {/* Internal Notes (Post-it) */}

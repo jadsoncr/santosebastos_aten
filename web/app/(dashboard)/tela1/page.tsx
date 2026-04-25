@@ -23,6 +23,10 @@ export interface Lead {
   is_reaquecido?: boolean
   is_assumido?: boolean
   status?: string | null
+  status_pipeline?: string | null
+  segmento_id?: string | null
+  assunto_id?: string | null
+  especificacao_id?: string | null
 }
 
 export default function Tela1Page() {

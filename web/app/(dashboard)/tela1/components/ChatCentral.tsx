@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useSocket } from '@/components/providers/SocketProvider'
+import ProgressBar from './ProgressBar'
 import QuickReplies from './QuickReplies'
 import SmartSnippets from './SmartSnippets'
 import PopupEnfileirar from './PopupEnfileirar'
@@ -259,6 +260,11 @@ export default function ChatCentral({ lead }: Props) {
             ENCERRAR
           </button>
         </div>
+      </div>
+
+      {/* Pipeline Progress */}
+      <div className="px-4 py-1.5 border-b border-border bg-bg-primary">
+        <ProgressBar currentStage={(lead as any).status_pipeline} />
       </div>
 
       {/* Messages */}
