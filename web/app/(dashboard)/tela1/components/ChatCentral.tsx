@@ -450,6 +450,44 @@ export default function ChatCentral({ lead }: Props) {
             )
           }
 
+          // Audio message rendering
+          if (msg.tipo === 'audio') {
+            return (
+              <div key={msg.id} className={`flex ${sent ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className={`max-w-[70%] px-3 py-2 text-sm text-text-primary ${
+                    sent
+                      ? 'bg-chat-sent rounded-[12px_0_12px_12px]'
+                      : 'bg-chat-received rounded-[0_12px_12px_12px]'
+                  }`}
+                >
+                  <div className="flex flex-col gap-1.5">
+                    {msg.arquivo_url && (
+                      <audio controls src={msg.arquivo_url} className="max-w-[260px]" />
+                    )}
+                    <span className="text-xs text-text-secondary truncate">
+                      {msg.arquivo_nome || 'Áudio'}
+                    </span>
+                  </div>
+                  <span className="font-mono text-xs text-text-muted block mt-1">
+                    {formatTime(msg.created_at)}
+                    {!sent && channelMap[msg.de] ? (
+                      <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded ${
+                        channelMap[msg.de] === 'telegram'
+                          ? 'bg-accent/10 text-accent'
+                          : 'bg-success/10 text-success'
+                      }`}>
+                        via {channelMap[msg.de] === 'telegram' ? 'Telegram' : 'WhatsApp'}
+                      </span>
+                    ) : (
+                      !sent && phoneTag(msg.de) && <span className="ml-1 opacity-60">via {phoneTag(msg.de)}</span>
+                    )}
+                  </span>
+                </div>
+              </div>
+            )
+          }
+
           return (
             <div key={msg.id} className={`flex ${sent ? 'justify-end' : 'justify-start'}`}>
               <div
@@ -546,7 +584,7 @@ export default function ChatCentral({ lead }: Props) {
           <input
             type="file"
             ref={fileInputRef}
-            accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx"
+            accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.ogg,.mp3,.mp4,.webm,.wav"
             onChange={handleFileSelect}
             className="hidden"
           />

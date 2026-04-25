@@ -63,6 +63,32 @@ async function sendTelegramDocument(chat_id, document_url, caption) {
   });
 }
 
+// ── File download & upload helper for inbound files ─────────────────────────
+const { sanitizeFileName } = require('./src/fileValidation');
+
+async function downloadAndUploadFile(fileBuffer, fileName, mimeType, leadId) {
+  const sanitized = sanitizeFileName(fileName);
+  const storagePath = `${leadId}/${sanitized}`;
+  const db = getSupabase();
+
+  const { error: uploadError } = await db.storage
+    .from('chat-files')
+    .upload(storagePath, fileBuffer, { contentType: mimeType });
+  if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`);
+
+  const { data: signedData, error: signError } = await db.storage
+    .from('chat-files')
+    .createSignedUrl(storagePath, 604800);
+  if (signError || !signedData?.signedUrl) throw new Error(`Signed URL failed: ${(signError || {}).message}`);
+
+  return {
+    url: signedData.signedUrl,
+    nome: fileName,
+    tipo: mimeType,
+    tamanho: fileBuffer.length,
+  };
+}
+
 const app = express();
 app.use(express.json());
 
@@ -74,8 +100,177 @@ app.post('/webhook', async (req, res) => {
 
     let body = req.body;
     if (isTelegram) {
+      // ── Inbound: Telegram document ──────────────────────────────────────
+      if (tgMsg.document && tgMsg.document.file_id) {
+        const chatId = String(tgMsg.chat.id);
+        let fileIdentityId;
+        try {
+          fileIdentityId = await resolveIdentity('telegram', chatId, null);
+        } catch (_) {
+          return res.sendStatus(200);
+        }
+        const db = getSupabase();
+        const { data: fileLead } = await db.from('leads').select('id').eq('identity_id', fileIdentityId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (!fileLead) return res.sendStatus(200);
+        const fileLeadId = fileLead.id;
+
+        try {
+          const fileInfoRes = await fetch(`${TELEGRAM_API}/getFile?file_id=${tgMsg.document.file_id}`);
+          const fileInfo = await fileInfoRes.json();
+          const filePath = fileInfo.result.file_path;
+          const downloadRes = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${filePath}`);
+          const buffer = Buffer.from(await downloadRes.arrayBuffer());
+          const fileName = tgMsg.document.file_name || 'document';
+          const mimeType = tgMsg.document.mime_type || 'application/octet-stream';
+
+          const fileData = await downloadAndUploadFile(buffer, fileName, mimeType, fileLeadId);
+
+          const { data: savedMsg } = await db.from('mensagens').insert({
+            lead_id: fileLeadId,
+            de: chatId,
+            tipo: 'arquivo',
+            conteudo: fileData.nome,
+            arquivo_url: fileData.url,
+            arquivo_nome: fileData.nome,
+            arquivo_tipo: fileData.tipo,
+            arquivo_tamanho: fileData.tamanho,
+            canal_origem: 'telegram',
+          }).select().single();
+
+          if (savedMsg) {
+            io.emit('nova_mensagem_salva', savedMsg);
+          }
+        } catch (docErr) {
+          console.error(JSON.stringify({ level: 'error', msg: 'inbound_document_fail', lead_id: fileLeadId, erro: docErr.message, ts: new Date().toISOString() }));
+          await db.from('mensagens').insert({
+            lead_id: fileLeadId,
+            de: chatId,
+            tipo: 'mensagem',
+            conteudo: '[Arquivo recebido — falha no processamento]',
+            canal_origem: 'telegram',
+          });
+        }
+        return res.sendStatus(200);
+      }
+
+      // ── Inbound: Telegram photo ─────────────────────────────────────────
+      if (tgMsg.photo && tgMsg.photo.length > 0) {
+        const chatId = String(tgMsg.chat.id);
+        let fileIdentityId;
+        try {
+          fileIdentityId = await resolveIdentity('telegram', chatId, null);
+        } catch (_) {
+          return res.sendStatus(200);
+        }
+        const db = getSupabase();
+        const { data: fileLead } = await db.from('leads').select('id').eq('identity_id', fileIdentityId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (!fileLead) return res.sendStatus(200);
+        const fileLeadId = fileLead.id;
+
+        try {
+          const largestPhoto = tgMsg.photo[tgMsg.photo.length - 1];
+          const fileInfoRes = await fetch(`${TELEGRAM_API}/getFile?file_id=${largestPhoto.file_id}`);
+          const fileInfo = await fileInfoRes.json();
+          const filePath = fileInfo.result.file_path;
+          const downloadRes = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${filePath}`);
+          const buffer = Buffer.from(await downloadRes.arrayBuffer());
+          const fileName = `foto_${Date.now()}.jpg`;
+          const mimeType = 'image/jpeg';
+
+          const fileData = await downloadAndUploadFile(buffer, fileName, mimeType, fileLeadId);
+
+          const { data: savedMsg } = await db.from('mensagens').insert({
+            lead_id: fileLeadId,
+            de: chatId,
+            tipo: 'arquivo',
+            conteudo: fileData.nome,
+            arquivo_url: fileData.url,
+            arquivo_nome: fileData.nome,
+            arquivo_tipo: fileData.tipo,
+            arquivo_tamanho: fileData.tamanho,
+            canal_origem: 'telegram',
+          }).select().single();
+
+          if (savedMsg) {
+            io.emit('nova_mensagem_salva', savedMsg);
+          }
+        } catch (photoErr) {
+          console.error(JSON.stringify({ level: 'error', msg: 'inbound_photo_fail', lead_id: fileLeadId, erro: photoErr.message, ts: new Date().toISOString() }));
+          await db.from('mensagens').insert({
+            lead_id: fileLeadId,
+            de: chatId,
+            tipo: 'mensagem',
+            conteudo: '[Arquivo recebido — falha no processamento]',
+            canal_origem: 'telegram',
+          });
+        }
+        return res.sendStatus(200);
+      }
+
+      // ── Inbound: Telegram voice/audio ───────────────────────────────────
+      if (tgMsg.voice || tgMsg.audio) {
+        const chatId = String(tgMsg.chat.id);
+        let fileIdentityId;
+        try {
+          fileIdentityId = await resolveIdentity('telegram', chatId, null);
+        } catch (_) {
+          return res.sendStatus(200);
+        }
+        const db = getSupabase();
+        const { data: fileLead } = await db.from('leads').select('id').eq('identity_id', fileIdentityId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (!fileLead) return res.sendStatus(200);
+        const fileLeadId = fileLead.id;
+
+        try {
+          let fileId, mimeType, fileName;
+          if (tgMsg.voice) {
+            fileId = tgMsg.voice.file_id;
+            mimeType = tgMsg.voice.mime_type || 'audio/ogg';
+            fileName = `audio_${Date.now()}.ogg`;
+          } else {
+            fileId = tgMsg.audio.file_id;
+            mimeType = tgMsg.audio.mime_type || 'audio/mpeg';
+            fileName = tgMsg.audio.file_name || `audio_${Date.now()}.mp3`;
+          }
+
+          const fileInfoRes = await fetch(`${TELEGRAM_API}/getFile?file_id=${fileId}`);
+          const fileInfo = await fileInfoRes.json();
+          const filePath = fileInfo.result.file_path;
+          const downloadRes = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${filePath}`);
+          const buffer = Buffer.from(await downloadRes.arrayBuffer());
+
+          const fileData = await downloadAndUploadFile(buffer, fileName, mimeType, fileLeadId);
+
+          const { data: savedMsg } = await db.from('mensagens').insert({
+            lead_id: fileLeadId,
+            de: chatId,
+            tipo: 'audio',
+            conteudo: fileData.nome,
+            arquivo_url: fileData.url,
+            arquivo_nome: fileData.nome,
+            arquivo_tipo: fileData.tipo,
+            arquivo_tamanho: fileData.tamanho,
+            canal_origem: 'telegram',
+          }).select().single();
+
+          if (savedMsg) {
+            io.emit('nova_mensagem_salva', savedMsg);
+          }
+        } catch (audioErr) {
+          console.error(JSON.stringify({ level: 'error', msg: 'inbound_audio_fail', lead_id: fileLeadId, erro: audioErr.message, ts: new Date().toISOString() }));
+          await db.from('mensagens').insert({
+            lead_id: fileLeadId,
+            de: chatId,
+            tipo: 'mensagem',
+            conteudo: '[Arquivo recebido — falha no processamento]',
+            canal_origem: 'telegram',
+          });
+        }
+        return res.sendStatus(200);
+      }
+
       if (!tgMsg.text) {
-        // áudio, foto, sticker, etc — tratamento progressivo por nível
+        // sticker, etc — tratamento progressivo por nível
         const chatId = String(tgMsg.chat.id);
         let audioIdentityId;
         try {
@@ -133,6 +328,54 @@ app.post('/webhook', async (req, res) => {
       }));
       if (isTelegram) return res.sendStatus(200);
       return res.status(500).json({ error: 'Erro ao resolver identidade.' });
+    }
+
+    // ── Inbound: WhatsApp file (arquivo_url present in payload) ───────────
+    if (!isTelegram && body.arquivo_url) {
+      try {
+        const db = getSupabase();
+        const { data: fileLead } = await db.from('leads').select('id').eq('identity_id', identity_id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (!fileLead) return res.json({ message: 'Lead não encontrado.' });
+        const fileLeadId = fileLead.id;
+
+        const downloadRes = await fetch(body.arquivo_url);
+        const buffer = Buffer.from(await downloadRes.arrayBuffer());
+        const fileName = body.arquivo_nome || `arquivo_${Date.now()}`;
+        const mimeType = body.arquivo_tipo || 'application/octet-stream';
+
+        const fileData = await downloadAndUploadFile(buffer, fileName, mimeType, fileLeadId);
+
+        const { data: savedMsg } = await db.from('mensagens').insert({
+          lead_id: fileLeadId,
+          de: channel_user_id,
+          tipo: 'arquivo',
+          conteudo: fileData.nome,
+          arquivo_url: fileData.url,
+          arquivo_nome: fileData.nome,
+          arquivo_tipo: fileData.tipo,
+          arquivo_tamanho: fileData.tamanho,
+          canal_origem: 'whatsapp',
+        }).select().single();
+
+        if (savedMsg) {
+          io.emit('nova_mensagem_salva', savedMsg);
+        }
+        return res.json({ message: 'Arquivo processado.' });
+      } catch (waFileErr) {
+        console.error(JSON.stringify({ level: 'error', msg: 'inbound_whatsapp_file_fail', identity_id, erro: waFileErr.message, ts: new Date().toISOString() }));
+        const db = getSupabase();
+        const { data: fileLead } = await db.from('leads').select('id').eq('identity_id', identity_id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (fileLead) {
+          await db.from('mensagens').insert({
+            lead_id: fileLead.id,
+            de: channel_user_id,
+            tipo: 'mensagem',
+            conteudo: '[Arquivo recebido — falha no processamento]',
+            canal_origem: 'whatsapp',
+          });
+        }
+        return res.json({ message: 'Falha no processamento do arquivo.' });
+      }
     }
 
     // ── CAPTURA AGRESSIVA: extrair nome/telefone do Telegram ──

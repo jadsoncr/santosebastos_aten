@@ -95,8 +95,8 @@ Implementação incremental do suporte a envio e recebimento de arquivos no chat
     - On outbound failure: log `{ level: 'error', msg: 'outbound_file_fail', lead_id, erro }` — do not block the message save
     - _Requirements: 4.1, 4.2, 4.3_
 
-- [ ] 7. Server.js — inbound file reception from Telegram and WhatsApp
-  - [ ] 7.1 Add file download and upload helper to `server.js`
+- [x] 7. Server.js — inbound file reception from Telegram and WhatsApp
+  - [x] 7.1 Add file download and upload helper to `server.js`
     - New async function: `downloadAndUploadFile(fileBuffer, fileName, mimeType, leadId)`
     - Uses `src/fileValidation.js` for `sanitizeFileName`
     - Uploads to Supabase Storage bucket `chat-files` with path `{leadId}/{uuid}_{sanitized_filename}`
@@ -104,7 +104,7 @@ Implementação incremental do suporte a envio e recebimento de arquivos no chat
     - Returns `{ url, nome, tipo, tamanho }` or throws on failure
     - _Requirements: 1.1, 1.3, 7.5, 7.6_
 
-  - [ ] 7.2 Extend the webhook handler (POST /webhook) for Telegram document reception
+  - [x] 7.2 Extend the webhook handler (POST /webhook) for Telegram document reception
     - Detect `tgMsg.document` (file_id present): call Telegram `getFile` API to get `file_path`, download file from `https://api.telegram.org/file/bot{token}/{file_path}`
     - Upload to Storage via `downloadAndUploadFile`
     - Save `mensagens` record with `tipo='arquivo'`, `de=channel_user_id`, and file metadata
@@ -112,13 +112,13 @@ Implementação incremental do suporte a envio e recebimento de arquivos no chat
     - On failure: save fallback text message `"[Arquivo recebido — falha no processamento]"` and log error
     - _Requirements: 5.1, 5.4, 5.5, 5.6_
 
-  - [ ] 7.3 Extend the webhook handler for Telegram photo reception
+  - [x] 7.3 Extend the webhook handler for Telegram photo reception
     - Detect `tgMsg.photo` (array present): use last element (largest resolution) to get `file_id`
     - Same download/upload/save flow as 7.2
     - Set `arquivo_tipo` to `image/jpeg` (Telegram photos are JPEG), `arquivo_nome` to `photo_{uuid}.jpg`
     - _Requirements: 5.2, 5.4, 5.5, 5.6_
 
-  - [ ] 7.4 Extend the webhook handler for WhatsApp file reception
+  - [x] 7.4 Extend the webhook handler for WhatsApp file reception
     - Detect `req.body.arquivo_url` present in the payload
     - Download file from the provided URL
     - Upload to Storage via `downloadAndUploadFile`
