@@ -136,6 +136,9 @@ app.post('/webhook', async (req, res) => {
       const lastName = tgMsg.from.last_name || '';
       nome_telegram = lastName ? `${firstName} ${lastName}` : firstName || null;
 
+      // Capturar username do Telegram como fallback de identificação
+      const username_telegram = tgMsg.from.username || null;
+
       if (nome_telegram || tgMsg.from.phone_number) {
         try {
           const db = getSupabase();

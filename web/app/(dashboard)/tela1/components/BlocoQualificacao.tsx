@@ -171,16 +171,27 @@ export default function BlocoQualificacao({
       return
     }
     const trimmed = nomeValue.trim()
-    const { data: leadData } = await supabase
-      .from('leads')
-      .select('identity_id')
-      .eq('id', lead.id)
-      .maybeSingle()
-    if (leadData?.identity_id) {
-      await supabase.from('identities').update({ nome: trimmed }).eq('id', leadData.identity_id)
+    try {
+      const { data: leadData } = await supabase
+        .from('leads')
+        .select('identity_id')
+        .eq('id', lead.id)
+        .maybeSingle()
+      if (leadData?.identity_id) {
+        // Fonte única: identities.nome
+        const { error: idErr } = await supabase.from('identities').update({ nome: trimmed }).eq('id', leadData.identity_id)
+        if (idErr) console.error('[SAVE NOME] identities error:', idErr.message)
+        // Espelhar em TODOS os leads desta identidade
+        const { error: ldErr } = await supabase.from('leads').update({ nome: trimmed }).eq('identity_id', leadData.identity_id)
+        if (ldErr) console.error('[SAVE NOME] leads error:', ldErr.message)
+      } else {
+        // Fallback: salvar só no lead atual
+        await supabase.from('leads').update({ nome: trimmed }).eq('id', lead.id)
+      }
+      onLeadUpdate({ ...lead, nome: trimmed })
+    } catch (err) {
+      console.error('[SAVE NOME] exception:', err)
     }
-    await supabase.from('leads').update({ nome: trimmed }).eq('id', lead.id)
-    onLeadUpdate({ ...lead, nome: trimmed })
     setEditingNome(false)
   }
 
