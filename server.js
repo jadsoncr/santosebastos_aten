@@ -215,14 +215,19 @@ app.post('/webhook', async (req, res) => {
 
         // ── SILENCIADOR INTELIGENTE: verificar se humano está realmente ativo ──
         if (existingLead.is_assumido) {
-          // Verificar última interação do operador
+          // Verificar última interação do operador (não do cliente)
           const { data: leadFull } = await db
             .from('leads')
-            .select('ultima_msg_em, ultima_msg_de')
+            .select('last_operator_message_at, ultima_msg_em')
             .eq('id', existingLead.id)
             .maybeSingle();
 
-          const ultimaInteracao = leadFull?.ultima_msg_em ? new Date(leadFull.ultima_msg_em) : null;
+          // Usar last_operator_message_at se disponível, senão ultima_msg_em como fallback
+          const ultimaInteracao = leadFull?.last_operator_message_at
+            ? new Date(leadFull.last_operator_message_at)
+            : leadFull?.ultima_msg_em
+            ? new Date(leadFull.ultima_msg_em)
+            : null;
           const agora = new Date();
           const diffMin = ultimaInteracao ? (agora.getTime() - ultimaInteracao.getTime()) / 60000 : 999;
 
@@ -548,6 +553,7 @@ io.on('connection', (socket) => {
           status_triagem: 'humano_assumiu',
           ultima_msg_de: de,
           ultima_msg_em: new Date().toISOString(),
+          last_operator_message_at: new Date().toISOString(),
         }).eq('id', lead_id);
 
         const { data: lead } = await db

@@ -34,3 +34,7 @@ ON CONFLICT (chave) DO NOTHING;
 
 -- 8. Foto do perfil Telegram
 ALTER TABLE identities ADD COLUMN IF NOT EXISTS photo_url TEXT;
+
+
+-- 9. Separar timestamp do operador para controle preciso de posse
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_operator_message_at TIMESTAMPTZ;
