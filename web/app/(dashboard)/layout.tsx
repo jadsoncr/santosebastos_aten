@@ -18,12 +18,15 @@ export default async function DashboardLayout({
 
   const role = (user.user_metadata?.role as string) || 'operador'
   const email = user.email || ''
+  const displayName = (user.user_metadata?.nome as string)
+    || (user.user_metadata?.full_name as string)
+    || email.split('@')[0]
 
   return (
     <div className="flex h-screen bg-bg-primary">
       <Sidebar role={role} />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header email={email} role={role} />
+        <Header displayName={displayName} role={role} />
         <main className="flex-1 overflow-auto p-6">
           <SocketProvider>
             {children}

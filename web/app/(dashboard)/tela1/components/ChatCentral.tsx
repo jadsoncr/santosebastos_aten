@@ -246,20 +246,6 @@ export default function ChatCentral({ lead }: Props) {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <button className="px-3 py-1.5 rounded-md text-xs font-medium bg-bg-surface-hover text-text-primary hover:bg-border">
-            DELEGAR
-          </button>
-          <button onClick={() => setShowAguardando(true)} className="px-3 py-1.5 rounded-md text-xs font-medium bg-warning/10 text-warning hover:bg-warning/20">
-            AGUARDANDO
-          </button>
-          <button
-            onClick={handleEncerrar}
-            className="px-3 py-1.5 rounded-md text-xs font-medium bg-error/10 text-error hover:bg-error/20"
-          >
-            ENCERRAR
-          </button>
-        </div>
       </div>
 
       {/* Pipeline Progress */}

@@ -4,11 +4,11 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 
 interface HeaderProps {
-  email: string
+  displayName: string
   role: string
 }
 
-export default function Header({ email, role }: HeaderProps) {
+export default function Header({ displayName, role }: HeaderProps) {
   const router = useRouter()
 
   async function handleLogout() {
@@ -20,7 +20,7 @@ export default function Header({ email, role }: HeaderProps) {
   return (
     <header className="flex h-header items-center justify-between border-b border-border bg-bg-surface px-6">
       <div className="flex items-center gap-3">
-        <span className="text-sm text-text-primary">{email}</span>
+        <span className="text-sm font-medium text-text-primary">{displayName}</span>
         <span
           className={`rounded-sm px-2 py-0.5 font-mono text-xs font-medium ${
             role === 'owner'

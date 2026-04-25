@@ -58,7 +58,6 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
   const [urgentes, setUrgentes] = useState<LeadWithMeta[]>([])
   const [emAtendimento, setEmAtendimento] = useState<LeadWithMeta[]>([])
   const [aguardando, setAguardando] = useState<LeadWithMeta[]>([])
-  const [collapsed, setCollapsed] = useState({ urgente: false, emCurso: false, aguardando: false })
   const [operadorId, setOperadorId] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now())
   const socket = useSocket()
@@ -197,28 +196,42 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
     }, 300)
   }
 
+  // ── Build flat list sorted by score (highest first) ──
+  function getAllLeadsFlat(): LeadWithMeta[] {
+    const all = [...urgentes, ...emAtendimento, ...aguardando]
+    // Deduplicate by id
+    const seen = new Set<string>()
+    const unique: LeadWithMeta[] = []
+    for (const lead of all) {
+      if (!seen.has(lead.id)) {
+        seen.add(lead.id)
+        unique.push(lead)
+      }
+    }
+    // Sort by score descending
+    unique.sort((a, b) => b.score - a.score)
+    return unique
+  }
+
   // ── Filter leads by active pill ──
-  function getFilteredLeads(): { showSections: boolean; flatList: LeadWithMeta[] } {
+  function getFilteredLeads(): LeadWithMeta[] {
     const hasSearch = searchQuery.trim().length > 0
 
     if (hasSearch) {
-      // Search mode: flat list, optionally filtered by pill
-      let results = searchResults
+      let results = [...searchResults]
       if (activePill === 'retorno') {
-        // Only show leads that are in the aguardando list
         const aguardandoIds = new Set(aguardando.map(l => l.id))
         results = results.filter(l => aguardandoIds.has(l.id))
       }
-      // 'naoLidas' — for now show all (unread tracking not wired yet)
-      return { showSections: false, flatList: results }
+      return results
     }
 
-    // No search: use pill filter on sectioned data
     if (activePill === 'retorno') {
-      return { showSections: false, flatList: aguardando }
+      return aguardando
     }
-    // 'tudo' and 'naoLidas' show normal sections
-    return { showSections: true, flatList: [] }
+
+    // 'tudo' and 'naoLidas' — flat list of all leads
+    return getAllLeadsFlat()
   }
 
   // ── New contact save ──
@@ -277,7 +290,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
   }
 
   const total = urgentes.length + emAtendimento.length + aguardando.length
-  const { showSections, flatList } = getFilteredLeads()
+  const filteredLeads = getFilteredLeads()
 
   function renderLeadItem(lead: LeadWithMeta) {
     const priority = getPriorityStyle(lead.score)
@@ -337,16 +350,6 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
     )
   }
 
-  function SectionHeader({ label, count, color, section }: { label: string; count: number; color: string; section: 'urgente' | 'emCurso' | 'aguardando' }) {
-    return (
-      <button onClick={() => setCollapsed(p => ({ ...p, [section]: !p[section] }))}
-        className="w-full flex items-center justify-between px-3 py-2 bg-bg-surface border-b border-border text-xs font-medium">
-        <span className={color}>{collapsed[section] ? '▸' : '▾'} {label}</span>
-        <span className="font-mono text-text-muted">{count}</span>
-      </button>
-    )
-  }
-
   const pillClasses = (pill: 'tudo' | 'naoLidas' | 'retorno') =>
     `px-3 py-1 rounded-full text-xs font-medium transition-colors ${
       activePill === pill
@@ -400,13 +403,13 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
         </button>
       </div>
 
-      {/* Lead list */}
+      {/* Lead list — FLAT, no sections */}
       <div className="flex-1 overflow-y-auto">
         {isSearching && (
           <p className="px-3 py-4 text-xs text-text-muted text-center">Buscando...</p>
         )}
 
-        {!isSearching && !showSections && flatList.length === 0 && searchQuery.trim().length > 0 && (
+        {!isSearching && filteredLeads.length === 0 && searchQuery.trim().length > 0 && (
           <div className="px-3 py-4 text-center">
             <p className="text-xs text-text-muted">{COPY.busca.nenhumResultado}</p>
             <button
@@ -418,25 +421,11 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
           </div>
         )}
 
-        {!isSearching && !showSections && flatList.length > 0 && (
-          flatList.map(renderLeadItem)
+        {!isSearching && filteredLeads.length === 0 && searchQuery.trim().length === 0 && (
+          <p className="px-3 py-4 text-xs text-text-muted text-center">Nenhum prospecto ativo</p>
         )}
 
-        {!isSearching && showSections && (
-          <>
-            <SectionHeader label={COPY.conversas.captacao} count={urgentes.length} color="text-error" section="urgente" />
-            {!collapsed.urgente && urgentes.map(renderLeadItem)}
-            {!collapsed.urgente && urgentes.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">{COPY.conversas.nenhumCaptacao}</p>}
-
-            <SectionHeader label={COPY.conversas.emAtendimento} count={emAtendimento.length} color="text-accent" section="emCurso" />
-            {!collapsed.emCurso && emAtendimento.map(renderLeadItem)}
-            {!collapsed.emCurso && emAtendimento.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">{COPY.conversas.nenhumAtendimento}</p>}
-
-            <SectionHeader label={COPY.conversas.aguardandoRetorno} count={aguardando.length} color="text-warning" section="aguardando" />
-            {!collapsed.aguardando && aguardando.map(renderLeadItem)}
-            {!collapsed.aguardando && aguardando.length === 0 && <p className="px-3 py-2 text-xs text-text-muted">{COPY.conversas.nenhumAguardando}</p>}
-          </>
-        )}
+        {!isSearching && filteredLeads.map(renderLeadItem)}
       </div>
 
       {/* New Contact Modal */}
