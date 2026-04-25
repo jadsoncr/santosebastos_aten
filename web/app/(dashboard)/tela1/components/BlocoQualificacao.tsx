@@ -99,6 +99,19 @@ export default function BlocoQualificacao({
   const [statusPagamento, setStatusPagamento] = useState('Pendente')
   const [loading, setLoading] = useState(false)
 
+  // Botoeira modals (replacing prompt())
+  const [showAgendarModal, setShowAgendarModal] = useState(false)
+  const [agendarData, setAgendarData] = useState('')
+  const [agendarLocal, setAgendarLocal] = useState('')
+
+  const [showSolicitarModal, setShowSolicitarModal] = useState(false)
+  const [solicitarDocs, setSolicitarDocs] = useState('')
+
+  const [showPropostaModal, setShowPropostaModal] = useState(false)
+  const [propostaValor, setPropostaValor] = useState('')
+
+  const [showContratoConfirm, setShowContratoConfirm] = useState(false)
+
   const supabase = createClient()
   const socket = useSocket()
   const router = useRouter()
@@ -123,6 +136,15 @@ export default function BlocoQualificacao({
     setIdentitySearchDone(false)
     setNotaTexto('')
     setNotaSalva(false)
+    // Reset botoeira modals
+    setShowAgendarModal(false)
+    setAgendarData('')
+    setAgendarLocal('')
+    setShowSolicitarModal(false)
+    setSolicitarDocs('')
+    setShowPropostaModal(false)
+    setPropostaValor('')
+    setShowContratoConfirm(false)
     loadNotas()
   }, [lead.id])
 
@@ -340,49 +362,47 @@ export default function BlocoQualificacao({
     }
   }
 
-  // --- Botoeira de Jornada handlers (Change C) ---
-  async function handleAgendarReuniao() {
-    if (!socket || !lead || !operadorId) return
-    const data = prompt('Data da reunião (DD/MM/YYYY HH:MM):')
-    if (!data) return
-    const local = prompt('Local/Link:')
-    if (!local) return
+  // --- Botoeira de Jornada handlers (Change C) — now using modals ---
+  async function handleConfirmAgendar() {
+    if (!socket || !lead || !operadorId || !agendarData || !agendarLocal) return
 
     // Update atendimento
     await supabase.from('atendimentos').update({
       location: 'backoffice',
-      agendamento_data: new Date(data.split('/').reverse().join('-')).toISOString(),
-      agendamento_local: local,
+      agendamento_data: new Date(agendarData).toISOString(),
+      agendamento_local: agendarLocal,
     }).eq('lead_id', lead.id)
 
     // Timeline event
     await supabase.from('timeline_events').insert({
       lead_id: lead.id,
       tipo: 'reuniao_agendada',
-      descricao: `Reunião agendada: ${data} - ${local}`,
+      descricao: `Reunião agendada: ${agendarData} - ${agendarLocal}`,
       operador_id: operadorId,
-      metadata: { data, local },
+      metadata: { data: agendarData, local: agendarLocal },
     })
 
     // Pipeline transition
     socket.emit('pipeline_transition', {
       lead_id: lead.id,
       target_stage: 'AGENDAMENTO',
-      conditions: { agendamento_data: data, agendamento_local: local },
+      conditions: { agendamento_data: agendarData, agendamento_local: agendarLocal },
     })
+
+    setShowAgendarModal(false)
+    setAgendarData('')
+    setAgendarLocal('')
   }
 
-  async function handleSolicitarDados() {
-    if (!socket || !lead || !operadorId) return
-    const docs = prompt('Quais documentos solicitar?')
-    if (!docs) return
+  async function handleConfirmSolicitar() {
+    if (!socket || !lead || !operadorId || !solicitarDocs) return
 
     await supabase.from('timeline_events').insert({
       lead_id: lead.id,
       tipo: 'documento_solicitado',
-      descricao: `Documentos solicitados: ${docs}`,
+      descricao: `Documentos solicitados: ${solicitarDocs}`,
       operador_id: operadorId,
-      metadata: { documentos: docs },
+      metadata: { documentos: solicitarDocs },
     })
 
     socket.emit('pipeline_transition', {
@@ -390,23 +410,24 @@ export default function BlocoQualificacao({
       target_stage: 'DEVOLUTIVA',
       conditions: { documento_enviado: true },
     })
+
+    setShowSolicitarModal(false)
+    setSolicitarDocs('')
   }
 
-  async function handleEnviarProposta() {
-    if (!socket || !lead || !operadorId) return
-    const valor = prompt('Valor da proposta (R$):')
-    if (!valor) return
+  async function handleConfirmProposta() {
+    if (!socket || !lead || !operadorId || !propostaValor) return
 
     await supabase.from('atendimentos').update({
-      valor_estimado: parseFloat(valor),
+      valor_estimado: parseFloat(propostaValor),
     }).eq('lead_id', lead.id)
 
     await supabase.from('timeline_events').insert({
       lead_id: lead.id,
       tipo: 'proposta_enviada',
-      descricao: `Proposta enviada: R$ ${valor}`,
+      descricao: `Proposta enviada: R$ ${propostaValor}`,
       operador_id: operadorId,
-      metadata: { valor },
+      metadata: { valor: propostaValor },
     })
 
     socket.emit('pipeline_transition', {
@@ -414,9 +435,12 @@ export default function BlocoQualificacao({
       target_stage: 'PAGAMENTO_PENDENTE',
       conditions: { documento_assinado: true },
     })
+
+    setShowPropostaModal(false)
+    setPropostaValor('')
   }
 
-  async function handleGerarContrato() {
+  async function handleConfirmContrato() {
     if (!socket || !lead || !operadorId) return
 
     await supabase.from('atendimentos').update({
@@ -436,6 +460,8 @@ export default function BlocoQualificacao({
       target_stage: 'DEVOLUTIVA',
       conditions: { documento_enviado: true },
     })
+
+    setShowContratoConfirm(false)
   }
 
   // --- Conversão (Change D — enhanced validation) ---
@@ -511,6 +537,12 @@ export default function BlocoQualificacao({
 
   return (
     <div className="space-y-4">
+
+      {/* ═══ BLOCO 1 — CONTEXTO (Quem é) ═══ */}
+      <div>
+        <span className="text-xs font-medium text-text-secondary uppercase">Contexto</span>
+      </div>
+
       {/* Editable name */}
       <div>
         <span className="text-xs text-text-muted block mb-1">Nome</span>
@@ -631,6 +663,13 @@ export default function BlocoQualificacao({
         )}
       </div>
 
+      <hr className="border-border my-3" />
+
+      {/* ═══ BLOCO 2 — CLASSIFICAÇÃO (Decidir) ═══ */}
+      <div>
+        <span className="text-xs font-medium text-text-secondary uppercase">Classificação</span>
+      </div>
+
       {/* Cascading Segment Dropdowns */}
       <div className="space-y-2">
         {/* Segmento (Level 1) */}
@@ -683,18 +722,42 @@ export default function BlocoQualificacao({
         {!selectedSegmento && <p className="text-xs text-warning mt-1">Selecione o segmento para habilitar os desfechos</p>}
       </div>
 
+      {/* Valor estimado — só pra LEAD */}
+      {!isCliente && (
+        <div>
+          <span className="text-xs text-text-muted block mb-1">Valor estimado (R$)</span>
+          <input
+            type="number"
+            value={valorEstimado}
+            onChange={(e) => setValorEstimado(e.target.value)}
+            onBlur={handleValorBlur}
+            placeholder="0,00"
+            disabled={!isAssumido}
+            className="w-full rounded-md border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+          />
+          {!isAssumido && <p className="text-xs text-text-muted mt-1">Assuma o lead primeiro</p>}
+        </div>
+      )}
+
+      <hr className="border-border my-3" />
+
+      {/* ═══ BLOCO 3 — AÇÕES (O que fazer) ═══ */}
+      <div>
+        <span className="text-xs font-medium text-text-secondary uppercase">Ações</span>
+      </div>
+
       {/* Botoeira de Jornada — 4 action buttons (Change C) */}
       <div className="grid grid-cols-2 gap-2">
-        <button onClick={handleAgendarReuniao} className="px-2 py-1.5 rounded-md text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20">
+        <button onClick={() => setShowAgendarModal(true)} className="px-2 py-1.5 rounded-md text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20">
           {COPY.botoeira.agendarReuniao}
         </button>
-        <button onClick={handleSolicitarDados} className="px-2 py-1.5 rounded-md text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20">
+        <button onClick={() => setShowSolicitarModal(true)} className="px-2 py-1.5 rounded-md text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20">
           {COPY.botoeira.solicitarDados}
         </button>
-        <button onClick={handleEnviarProposta} className="px-2 py-1.5 rounded-md text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20">
+        <button onClick={() => setShowPropostaModal(true)} className="px-2 py-1.5 rounded-md text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20">
           {COPY.botoeira.enviarProposta}
         </button>
-        <button onClick={handleGerarContrato} className="px-2 py-1.5 rounded-md text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20">
+        <button onClick={() => setShowContratoConfirm(true)} className="px-2 py-1.5 rounded-md text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20">
           {COPY.botoeira.gerarContrato}
         </button>
       </div>
@@ -736,23 +799,6 @@ export default function BlocoQualificacao({
           </div>
         )}
       </div>
-
-      {/* Valor estimado — só pra LEAD */}
-      {!isCliente && (
-        <div>
-          <span className="text-xs text-text-muted block mb-1">Valor estimado (R$)</span>
-          <input
-            type="number"
-            value={valorEstimado}
-            onChange={(e) => setValorEstimado(e.target.value)}
-            onBlur={handleValorBlur}
-            placeholder="0,00"
-            disabled={!isAssumido}
-            className="w-full rounded-md border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
-          />
-          {!isAssumido && <p className="text-xs text-text-muted mt-1">Assuma o lead primeiro</p>}
-        </div>
-      )}
 
       {/* Converter validation fields (Change D) */}
       {!isCliente && (
@@ -829,6 +875,91 @@ export default function BlocoQualificacao({
           </button>
         )}
       </div>
+
+      {/* ═══ BOTOEIRA MODALS ═══ */}
+
+      {/* Modal Agendar Reunião */}
+      {showAgendarModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowAgendarModal(false)}>
+          <div className="bg-bg-primary rounded-lg border border-border p-5 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-medium text-text-primary mb-3">Agendar Reunião</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-text-secondary block mb-1">Data e Hora</label>
+                <input type="datetime-local" value={agendarData} onChange={e => setAgendarData(e.target.value)}
+                  className="w-full rounded-md border border-border bg-bg-surface px-3 py-2 text-sm text-text-primary" />
+              </div>
+              <div>
+                <label className="text-xs text-text-secondary block mb-1">Local / Link</label>
+                <input type="text" value={agendarLocal} onChange={e => setAgendarLocal(e.target.value)} placeholder="Escritório ou link da call"
+                  className="w-full rounded-md border border-border bg-bg-surface px-3 py-2 text-sm text-text-primary" />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={() => setShowAgendarModal(false)} className="px-3 py-1.5 text-xs font-medium text-text-secondary">Cancelar</button>
+                <button onClick={handleConfirmAgendar} disabled={!agendarData || !agendarLocal}
+                  className="px-3 py-1.5 text-xs font-medium bg-accent text-white rounded-md disabled:opacity-40">Confirmar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Solicitar Dados */}
+      {showSolicitarModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowSolicitarModal(false)}>
+          <div className="bg-bg-primary rounded-lg border border-border p-5 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-medium text-text-primary mb-3">Solicitar Dados</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-text-secondary block mb-1">Quais documentos solicitar?</label>
+                <textarea value={solicitarDocs} onChange={e => setSolicitarDocs(e.target.value)} rows={3} placeholder="Descreva os documentos necessários..."
+                  className="w-full rounded-md border border-border bg-bg-surface px-3 py-2 text-sm text-text-primary resize-none" />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={() => setShowSolicitarModal(false)} className="px-3 py-1.5 text-xs font-medium text-text-secondary">Cancelar</button>
+                <button onClick={handleConfirmSolicitar} disabled={!solicitarDocs.trim()}
+                  className="px-3 py-1.5 text-xs font-medium bg-accent text-white rounded-md disabled:opacity-40">Confirmar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Enviar Proposta */}
+      {showPropostaModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowPropostaModal(false)}>
+          <div className="bg-bg-primary rounded-lg border border-border p-5 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-medium text-text-primary mb-3">Enviar Proposta</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-text-secondary block mb-1">Valor da proposta (R$)</label>
+                <input type="number" value={propostaValor} onChange={e => setPropostaValor(e.target.value)} placeholder="0,00"
+                  className="w-full rounded-md border border-border bg-bg-surface px-3 py-2 text-sm text-text-primary" />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={() => setShowPropostaModal(false)} className="px-3 py-1.5 text-xs font-medium text-text-secondary">Cancelar</button>
+                <button onClick={handleConfirmProposta} disabled={!propostaValor}
+                  className="px-3 py-1.5 text-xs font-medium bg-accent text-white rounded-md disabled:opacity-40">Confirmar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Gerar Contrato (confirmation) */}
+      {showContratoConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowContratoConfirm(false)}>
+          <div className="bg-bg-primary rounded-lg border border-border p-5 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-medium text-text-primary mb-3">Gerar Contrato</h3>
+            <p className="text-xs text-text-secondary mb-4">Confirma a geração e envio do contrato ao cliente?</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowContratoConfirm(false)} className="px-3 py-1.5 text-xs font-medium text-text-secondary">Cancelar</button>
+              <button onClick={handleConfirmContrato}
+                className="px-3 py-1.5 text-xs font-medium bg-accent text-white rounded-md">Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Popup Conversão */}
       {showConversaoPopup && (
