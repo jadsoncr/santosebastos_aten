@@ -6,7 +6,10 @@ import { useSocket } from '@/components/providers/SocketProvider'
 import { displayPhone } from '@/utils/format'
 import { cn } from '@/lib/utils'
 import { getUrgencyStyle } from '@/utils/urgencyColors'
-import { deriveGlobalPriority } from '@/utils/globalPriority'
+import { deriveGlobalPriority, isGlobalCritical } from '@/utils/globalPriority'
+import { splitLeads } from '@/utils/criticalPressure'
+import { useCriticalAlert } from '@/hooks/useCriticalAlert'
+import { trackEvent, resolveLeadSelectEvents } from '@/utils/behaviorTracker'
 import { getProximaAcao, getEtapaLabel, calcularProgresso, isSlaVencido, diasRestantes } from '@/utils/journeyModel'
 import { getPrazoLabel } from '@/utils/painelStatus'
 import type { Lead } from '../../tela1/page'
@@ -55,6 +58,7 @@ function getInitials(nome: string | null, telefone: string | null): string {
 
 export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Props) {
   const [cases, setCases] = useState<BackofficeItem[]>([])
+  const [operadorId, setOperadorId] = useState<string | null>(null)
   const socket = useSocket()
   const supabase = createClient()
   const mountedRef = useRef(true)
@@ -62,6 +66,12 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
+  }, [])
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) setOperadorId(data.user.id)
+    })
   }, [])
 
   const loadCases = useCallback(async () => {
@@ -199,6 +209,31 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
     })
   }, [cases])
 
+  // ── Critical pressure layer ──
+  const { criticalLeads: criticalCases, nonCriticalLeads: nonCriticalCases, criticalCount } = useMemo(() => {
+    return splitLeads(prioritizedCases, (item) => ({
+      level: isGlobalCritical(deriveGlobalPriority({
+        ultima_msg_em: item.ultima_msg_em,
+        ultima_msg_de: item.ultima_msg_de,
+        prazo_proxima_acao: item.prazo_proxima_acao,
+        created_at: item.created_at,
+        estado_painel: item.estadoPainel,
+      })) ? 'critical' : 'normal'
+    }))
+  }, [prioritizedCases])
+
+  // ── Sound alert on critical transition ──
+  useCriticalAlert(prioritizedCases, operadorId)
+
+  // ── Critical filter toggle ──
+  const [filterCriticalOnly, setFilterCriticalOnly] = useState(false)
+
+  useEffect(() => {
+    if (criticalCount === 0 && filterCriticalOnly) {
+      setFilterCriticalOnly(false)
+    }
+  }, [criticalCount, filterCriticalOnly])
+
   // Auto-select first case if none selected
   useEffect(() => {
     if (!selectedLeadId && prioritizedCases.length > 0) {
@@ -219,7 +254,34 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
     return (
       <button
         key={item.id}
-        onClick={() => onSelectLead(item)}
+        onClick={() => {
+          onSelectLead(item)
+
+          // --- Behavior tracking (fire-and-forget) ---
+          if (operadorId) {
+            const priority = deriveGlobalPriority({
+              ultima_msg_em: item.ultima_msg_em,
+              ultima_msg_de: item.ultima_msg_de,
+              prazo_proxima_acao: item.prazo_proxima_acao,
+              created_at: item.created_at,
+              estado_painel: item.estadoPainel,
+            })
+            const wasCritical = isGlobalCritical(priority)
+            const allCases = [...criticalCases, ...nonCriticalCases]
+            const positionInQueue = allCases.findIndex(c => c.id === item.id)
+
+            const events = resolveLeadSelectEvents({
+              lead: item,
+              userId: operadorId,
+              wasCritical,
+              criticalLeadIds: criticalCases.map(c => c.id),
+              positionInQueue,
+            })
+            for (const event of events) {
+              trackEvent(event)
+            }
+          }
+        }}
         className={cn(
           'w-full p-[14px] flex gap-3 text-left transition-all rounded-xl',
           isSelected
@@ -302,10 +364,42 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
         <p className="text-xs text-gray-400 mt-1">{prioritizedCases.length} casos ativos</p>
       </div>
       <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1 scrollbar-hide">
+        {/* Critical banner — clickable toggle filter */}
+        {criticalCount > 0 && (
+          <button
+            onClick={() => setFilterCriticalOnly(prev => !prev)}
+            className={`sticky top-0 z-10 mx-0 mb-1 px-3 py-2 rounded-lg text-left w-full transition-all ${
+              filterCriticalOnly
+                ? 'bg-red-600 border border-red-700'
+                : 'bg-red-50 border border-red-300 hover:bg-red-100'
+            }`}
+          >
+            <p className={`text-xs font-bold ${filterCriticalOnly ? 'text-white' : 'text-red-700'}`}>
+              🔴 {criticalCount} {criticalCount === 1 ? 'caso precisa' : 'casos precisam'} de atenção
+              {filterCriticalOnly && <span className="ml-2 opacity-75">✕ ver todos</span>}
+            </p>
+          </button>
+        )}
+
         {prioritizedCases.length === 0 && (
           <p className="px-3 py-4 text-xs text-gray-400 text-center">Nenhum caso ativo</p>
         )}
-        {prioritizedCases.map(renderCaseItem)}
+
+        {/* Render in two sections: critical, separator, rest */}
+        {criticalCases.length > 0 && (
+          <>
+            {criticalCases.map(renderCaseItem)}
+            {!filterCriticalOnly && nonCriticalCases.length > 0 && (
+              <div className="flex items-center gap-2 px-3 py-1.5">
+                <div className="flex-1 h-px bg-gray-200" />
+                <span className="text-[10px] font-bold uppercase text-red-500">🔴 URGENTE</span>
+                <div className="flex-1 h-px bg-gray-200" />
+              </div>
+            )}
+            {!filterCriticalOnly && nonCriticalCases.map(renderCaseItem)}
+          </>
+        )}
+        {criticalCases.length === 0 && prioritizedCases.map(renderCaseItem)}
       </div>
     </div>
   )
