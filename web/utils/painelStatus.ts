@@ -6,6 +6,7 @@
  */
 
 import type { EstadoPainel } from './painelModes'
+import { getSlaDias } from './journeyModel'
 
 // --- Cor do painel por estado ---
 
@@ -55,22 +56,11 @@ export function getScoreVisual(score: number): ScoreVisual {
   return { icon: '❄️', label: 'FRIO', colorClass: 'text-gray-400' }
 }
 
-// --- Prazo da próxima ação ---
+// --- Prazo da próxima ação (derivado de journeyModel) ---
 
 export function calcularPrazo(statusNegocio: string): Date {
   const now = new Date()
-  const dias = (() => {
-    switch (statusNegocio) {
-      case 'aguardando_agendamento':
-        return 2
-      case 'aguardando_proposta':
-        return 3
-      case 'negociacao':
-        return 5
-      default:
-        return 7
-    }
-  })()
+  const dias = getSlaDias(statusNegocio)
   return new Date(now.getTime() + dias * 24 * 60 * 60 * 1000)
 }
 

@@ -10,6 +10,7 @@ import { getConversationStatus, type ConversationStatusResult } from '@/utils/co
 import { getIntencaoAtual } from '@/utils/getIntencaoAtual'
 import { getUrgencyStyle, getTriagemSLA } from '@/utils/urgencyColors'
 import { splitLeads } from '@/utils/criticalPressure'
+import { deriveGlobalPriority, isGlobalCritical } from '@/utils/globalPriority'
 import { useCriticalAlert } from '@/hooks/useCriticalAlert'
 import { trackEvent, resolveLeadSelectEvents } from '@/utils/behaviorTracker'
 import type { Lead } from '../page'
@@ -263,24 +264,29 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
     return list
   }, [leads, activePill, searchQuery, searchResults])
 
-  // ── Urgency sort ──
+  // ── Urgency sort (unified priority engine) ──
   const prioritizedLeads = useMemo(() => {
     return [...filteredLeads].sort((a, b) => {
-      const ua = getUrgencyStyle(a.ultima_msg_em || null, a.ultima_msg_de || null)
-      const ub = getUrgencyStyle(b.ultima_msg_em || null, b.ultima_msg_de || null)
-      const levelOrder = { critical: 0, alert: 1, normal: 2 }
-      const diff = levelOrder[ua.level] - levelOrder[ub.level]
-      if (diff !== 0) return diff
-      // Within same level: most recent first (already sorted by ultima_msg_em DESC)
-      return 0
+      const pa = deriveGlobalPriority({ ultima_msg_em: a.ultima_msg_em, ultima_msg_de: a.ultima_msg_de, created_at: a.created_at, estado_painel: null })
+      const pb = deriveGlobalPriority({ ultima_msg_em: b.ultima_msg_em, ultima_msg_de: b.ultima_msg_de, created_at: b.created_at, estado_painel: null })
+      if (pa.level !== pb.level) return pa.level - pb.level
+      // Within same level: most recent first
+      const aTime = new Date(a.ultima_msg_em || a.created_at).getTime()
+      const bTime = new Date(b.ultima_msg_em || b.created_at).getTime()
+      return bTime - aTime
     })
   }, [filteredLeads])
 
   // ── Critical pressure layer — split into critical vs non-critical ──
   const { criticalLeads, nonCriticalLeads, criticalCount } = useMemo(() => {
-    return splitLeads(prioritizedLeads, (lead) =>
-      getUrgencyStyle(lead.ultima_msg_em || null, lead.ultima_msg_de || null)
-    )
+    return splitLeads(prioritizedLeads, (lead) => ({
+      level: isGlobalCritical(deriveGlobalPriority({
+        ultima_msg_em: lead.ultima_msg_em,
+        ultima_msg_de: lead.ultima_msg_de,
+        created_at: lead.created_at,
+        estado_painel: null,
+      })) ? 'critical' : 'normal'
+    }))
   }, [prioritizedLeads])
 
   // ── Sound alert on critical transition ──
@@ -415,13 +421,6 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
     const urgency = getUrgencyStyle(lead.ultima_msg_em || null, lead.ultima_msg_de || null)
     const triagemSla = getTriagemSLA(lead.created_at)
 
-    // Score-based border color
-    const borderColor = lead.score >= 7
-      ? 'border-blue-600'
-      : lead.score >= 4
-      ? 'border-yellow-400'
-      : 'border-gray-400'
-
     const displayName = lead.nome || displayPhone(lead.telefone) || (lead.channel_user_id ? 'Telegram' : 'Contato')
     const intencao = getIntencaoAtual(lead as any)
     const preview = lead.lastMessage
@@ -450,13 +449,6 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
     const timeColor = urgency.level === 'critical' ? urgency.textColor : isUrgent ? 'text-blue-600' : needsAttention ? 'text-yellow-600' : isStale ? 'text-gray-200' : 'text-gray-300'
     const cardOpacity = isStale ? 'opacity-60' : 'opacity-100'
     const slaLeftBorder = triagemSla ? 'border-l-red-500' : ''
-
-    // Status dot color
-    const statusDotColor = lead._conversationStatus?.status === 'active'
-      ? 'bg-blue-500'
-      : lead._conversationStatus?.status === 'waiting'
-      ? 'bg-yellow-500'
-      : 'bg-gray-400'
 
     return (
       <button
@@ -489,14 +481,13 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
         }}
         className={`w-full p-[14px] flex gap-3 text-left transition-all border-l-4 rounded-xl ${cardOpacity} ${
           isSelected
-            ? `bg-white shadow-sm ${borderColor}`
+            ? 'bg-white shadow-sm border-blue-600'
             : `${cardBg || 'bg-transparent'} ${slaLeftBorder || 'border-transparent'} hover:bg-white/50`
         }`}
       >
-        {/* Avatar with status dot */}
+        {/* Avatar */}
         <div className="relative w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center font-bold uppercase bg-gray-100 text-gray-300 overflow-hidden">
           {getInitials(lead.nome, lead.telefone)}
-          <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white z-10 ${statusDotColor}`} />
         </div>
 
         {/* Content */}
@@ -512,10 +503,6 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
               {urgency.level === 'critical' && (
                 <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
               )}
-              <div className={cn(
-                "w-2 h-2 rounded-full",
-                lead.score >= 7 ? "bg-blue-500" : lead.score >= 4 ? "bg-yellow-400" : "bg-gray-300"
-              )} />
               <span className={`text-[9px] font-bold uppercase shrink-0 ${timeColor}`}>
                 {timeAgo(lead.ultima_msg_em || lead.created_at)}
               </span>
@@ -526,7 +513,6 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
             <p className="text-xs text-gray-400 truncate font-medium flex-1">{preview || '\u00A0'}</p>
             <div className="flex items-center gap-1.5 shrink-0 ml-2">
               {urgency.label && <span className={`text-[9px] font-bold ${urgency.textColor}`}>{urgency.label}</span>}
-              <span className="text-[9px] font-bold text-gray-300">{lead.score}/10</span>
             </div>
           </div>
         </div>

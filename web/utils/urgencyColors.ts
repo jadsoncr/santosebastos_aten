@@ -1,3 +1,5 @@
+import { getSlaConfig } from './slaConfig'
+
 export type UrgencyLevel = 'normal' | 'alert' | 'critical'
 
 export interface UrgencyStyle {
@@ -32,18 +34,19 @@ export function getUrgencyStyle(
 
   const diffMs = Date.now() - new Date(ultimaMsgEm).getTime()
   const diffMin = Math.floor(diffMs / 60000)
+  const config = getSlaConfig()
 
-  // Critical: > 30min without response to client
-  if (diffMin >= 30) {
+  // Critical: > resposta_critica_min without response to client
+  if (diffMin >= config.resposta_critica_min) {
     return { level: 'critical', bg: 'bg-red-50', border: 'border-red-300', textColor: 'text-red-600', label: `⏱ ${diffMin}min` }
   }
 
-  // Alert: > 15min
-  if (diffMin >= 15) {
+  // Alert: > resposta_alerta_min
+  if (diffMin >= config.resposta_alerta_min) {
     return { level: 'alert', bg: 'bg-yellow-50', border: 'border-yellow-300', textColor: 'text-yellow-600', label: `⏱ ${diffMin}min` }
   }
 
-  // Normal: < 15min
+  // Normal: < resposta_alerta_min
   if (diffMin >= 1) {
     return { level: 'normal', bg: '', border: '', textColor: 'text-blue-500', label: `⏱ ${diffMin}min` }
   }
@@ -54,8 +57,9 @@ export function getUrgencyStyle(
 // SLA check for classification (lead > 2h without being classified)
 export function getTriagemSLA(createdAt: string): UrgencyStyle | null {
   const diffMs = Date.now() - new Date(createdAt).getTime()
+  const config = getSlaConfig()
   const diffHours = diffMs / (1000 * 60 * 60)
-  if (diffHours >= 2) {
+  if (diffHours >= config.triagem_critica_horas) {
     return { level: 'critical', bg: 'bg-red-50', border: 'border-red-300', textColor: 'text-red-600', label: 'SLA estourado' }
   }
   return null

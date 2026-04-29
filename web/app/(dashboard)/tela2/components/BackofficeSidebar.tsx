@@ -6,6 +6,9 @@ import { useSocket } from '@/components/providers/SocketProvider'
 import { displayPhone } from '@/utils/format'
 import { cn } from '@/lib/utils'
 import { getUrgencyStyle } from '@/utils/urgencyColors'
+import { deriveGlobalPriority } from '@/utils/globalPriority'
+import { getProximaAcao, getEtapaLabel, calcularProgresso, isSlaVencido, diasRestantes } from '@/utils/journeyModel'
+import { getPrazoLabel } from '@/utils/painelStatus'
 import type { Lead } from '../../tela1/page'
 
 interface Props {
@@ -17,6 +20,7 @@ interface BackofficeItem extends Lead {
   ownerName?: string
   lastMessage?: string
   estadoPainel: 'em_atendimento' | 'cliente'
+  status_negocio?: string | null
   valor_entrada?: string | null
   prazo_proxima_acao?: string | null
 }
@@ -120,6 +124,7 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
         ownerName: at.owner_id ? ownerNameMap.get(at.owner_id) : undefined,
         lastMessage: msgMap.get(lead.id),
         estadoPainel: at.estado_painel,
+        status_negocio: at.status_negocio || null,
         valor_entrada: at.valor_entrada || null,
         prazo_proxima_acao: at.prazo_proxima_acao || null,
       })
@@ -182,15 +187,15 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
     }
   }, [socket, loadCasesDebounced, loadCases])
 
-  // Urgency-sorted cases
+  // Urgency-sorted cases (unified priority engine)
   const prioritizedCases = useMemo(() => {
     return [...cases].sort((a, b) => {
-      const ua = getUrgencyStyle(a.ultima_msg_em || null, a.ultima_msg_de || null, a.prazo_proxima_acao)
-      const ub = getUrgencyStyle(b.ultima_msg_em || null, b.ultima_msg_de || null, b.prazo_proxima_acao)
-      const levelOrder = { critical: 0, alert: 1, normal: 2 }
-      const diff = levelOrder[ua.level] - levelOrder[ub.level]
-      if (diff !== 0) return diff
-      return 0
+      const pa = deriveGlobalPriority({ ultima_msg_em: a.ultima_msg_em, ultima_msg_de: a.ultima_msg_de, prazo_proxima_acao: a.prazo_proxima_acao, created_at: a.created_at, estado_painel: a.estadoPainel })
+      const pb = deriveGlobalPriority({ ultima_msg_em: b.ultima_msg_em, ultima_msg_de: b.ultima_msg_de, prazo_proxima_acao: b.prazo_proxima_acao, created_at: b.created_at, estado_painel: b.estadoPainel })
+      if (pa.level !== pb.level) return pa.level - pb.level
+      const aTime = new Date(a.ultima_msg_em || a.created_at).getTime()
+      const bTime = new Date(b.ultima_msg_em || b.created_at).getTime()
+      return bTime - aTime
     })
   }, [cases])
 
@@ -207,12 +212,6 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
     const preview = item.lastMessage
       ? (item.lastMessage.length > 50 ? item.lastMessage.slice(0, 50) + '...' : item.lastMessage)
       : '\u00A0'
-
-    const scoreDotColor = item.score >= 7
-      ? 'bg-blue-500'
-      : item.score >= 4
-      ? 'bg-yellow-400'
-      : 'bg-gray-300'
 
     const urgency = getUrgencyStyle(item.ultima_msg_em || null, item.ultima_msg_de || null, item.prazo_proxima_acao)
     const prazoVencido = item.prazo_proxima_acao && new Date(item.prazo_proxima_acao).getTime() < Date.now()
@@ -255,8 +254,30 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
           {/* Line 2: Preview */}
           <p className="text-xs text-gray-400 truncate font-medium">{preview}</p>
 
-          {/* Line 3: Owner + Badge + Score + Valor */}
-          <div className="flex items-center gap-2 mt-1">
+          {/* Line 3: Etapa + Próxima ação + SLA */}
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+            {item.status_negocio && (
+              <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 truncate max-w-[100px]">
+                {getEtapaLabel(item.status_negocio)}
+              </span>
+            )}
+            {item.status_negocio && getProximaAcao(item.status_negocio) && (
+              <span className="text-[8px] font-bold text-blue-600 truncate">
+                → {getProximaAcao(item.status_negocio)}
+              </span>
+            )}
+            {item.prazo_proxima_acao && (
+              <span className={cn(
+                'text-[8px] font-bold ml-auto shrink-0',
+                isSlaVencido(item.prazo_proxima_acao) ? 'text-red-600' : 'text-gray-400'
+              )}>
+                {getPrazoLabel(item.prazo_proxima_acao)}
+              </span>
+            )}
+          </div>
+
+          {/* Line 4: Owner + Badge */}
+          <div className="flex items-center gap-2 mt-0.5">
             <span className="text-[9px] text-gray-400 truncate">
               {item.ownerName || 'Livre'}
             </span>
@@ -268,12 +289,6 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
             )}>
               {item.estadoPainel === 'em_atendimento' ? 'Atendendo' : 'Cliente'}
             </span>
-            {item.valor_entrada && Number(item.valor_entrada) > 0 && (
-              <span className="text-[9px] font-mono font-bold text-green-600 ml-auto">
-                R$ {Number(item.valor_entrada).toLocaleString('pt-BR')}
-              </span>
-            )}
-            <div className={cn('w-2 h-2 rounded-full ml-auto shrink-0', scoreDotColor)} />
           </div>
         </div>
       </button>

@@ -31,7 +31,7 @@ const TREATMENT_MAP: Record<string, TreatmentResult> = {
 
   // Solicitação → backoffice
   'Solicitação::Reunião': { destino: 'backoffice', status_negocio: 'aguardando_agendamento' },
-  'Solicitação::Contato': { destino: 'backoffice', status_negocio: 'aguardando_contato' },
+  'Solicitação::Contato': { destino: 'backoffice', status_negocio: 'aguardando_agendamento' },
   'Solicitação::Proposta': { destino: 'backoffice', status_negocio: 'aguardando_proposta' },
   'Solicitação::Revisão/Proposta': { destino: 'backoffice', status_negocio: 'negociacao' },
 
@@ -39,8 +39,8 @@ const TREATMENT_MAP: Record<string, TreatmentResult> = {
   'Retorno::Revisão/Proposta': { destino: 'backoffice', status_negocio: 'negociacao' },
 
   // BadCall → encerrado (NÃO exige classificação jurídica)
-  'BadCall::Sem retorno': { destino: 'encerrado', status_negocio: 'nao_evoluiu' },
-  'BadCall::Trote': { destino: 'encerrado', status_negocio: 'nao_evoluiu' },
+  'BadCall::Sem retorno': { destino: 'encerrado', status_negocio: 'perdido' },
+  'BadCall::Trote': { destino: 'encerrado', status_negocio: 'perdido' },
 }
 
 /**
