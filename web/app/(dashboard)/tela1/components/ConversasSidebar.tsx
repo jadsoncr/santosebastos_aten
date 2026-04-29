@@ -1,16 +1,23 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useSocket } from '@/components/providers/SocketProvider'
 import { displayPhone } from '@/utils/format'
+import { cn } from '@/lib/utils'
 import { COPY } from '@/utils/copy'
-import { classificarInatividade, STATUS_STYLES, type LeadStatus } from '@/utils/businessHours'
+import { getConversationStatus, type ConversationStatusResult } from '@/utils/conversationStatus'
+import { getIntencaoAtual } from '@/utils/getIntencaoAtual'
+import { getUrgencyStyle, getTriagemSLA } from '@/utils/urgencyColors'
+import { splitLeads } from '@/utils/criticalPressure'
+import { useCriticalAlert } from '@/hooks/useCriticalAlert'
+import { trackEvent, resolveLeadSelectEvents } from '@/utils/behaviorTracker'
 import type { Lead } from '../page'
 
 interface Props {
   selectedLeadId: string | null
   onSelectLead: (lead: Lead) => void
+  closedLeadId?: string | null
 }
 
 interface LeadWithMeta extends Lead {
@@ -19,7 +26,10 @@ interface LeadWithMeta extends Lead {
   _prazoSla?: string
   lastMessage?: string
   unread?: boolean
-  _inactivityStatus?: LeadStatus
+  _conversationStatus?: ConversationStatusResult
+  unreadCount?: number
+  ownerName?: string
+  lastActionTime?: string
 }
 
 function timeAgo(dateStr: string): string {
@@ -50,12 +60,17 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   )
 }
 
-export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props) {
-  const [urgentes, setUrgentes] = useState<LeadWithMeta[]>([])
-  const [emAtendimento, setEmAtendimento] = useState<LeadWithMeta[]>([])
-  const [aguardando, setAguardando] = useState<LeadWithMeta[]>([])
+function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T {
+  let timer: NodeJS.Timeout
+  return ((...args: any[]) => {
+    clearTimeout(timer)
+    timer = setTimeout(() => fn(...args), ms)
+  }) as T
+}
+
+export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedLeadId }: Props) {
+  const [leads, setLeads] = useState<LeadWithMeta[]>([])
   const [operadorId, setOperadorId] = useState<string | null>(null)
-  const [now, setNow] = useState(Date.now())
   const socket = useSocket()
   const supabase = createClient()
 
@@ -63,7 +78,8 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<LeadWithMeta[]>([])
   const [isSearching, setIsSearching] = useState(false)
-  const [activePill, setActivePill] = useState<'tudo' | 'ativos' | 'esfriando' | 'sem_resposta'>('tudo')
+  const [activePill, setActivePill] = useState<'todos' | 'aguardando' | 'sem_retorno'>('todos')
+  const [filterCriticalOnly, setFilterCriticalOnly] = useState(false)
   const [showNewContactModal, setShowNewContactModal] = useState(false)
   const [newContact, setNewContact] = useState({ nome: '', telefone: '', canal: 'whatsapp', segmento: '' })
   const [isSavingContact, setIsSavingContact] = useState(false)
@@ -75,120 +91,146 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
     })
   }, [])
 
-  // Timer global — re-render a cada 60s pra atualizar SLA
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60000)
-    return () => clearInterval(timer)
-  }, [])
-
   const loadLeads = useCallback(async () => {
-    const ontem = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    // 1. Get all leads ordered by ultima_msg_em DESC (WhatsApp style)
+    const { data: allLeads } = await supabase
+      .from('leads')
+      .select('*')
+      .order('ultima_msg_em', { ascending: false, nullsFirst: false })
+      .limit(200) // fetch more, filter client-side
 
-    const [leadsRes, reaquecidosRes, clientesReaquecidosRes, atendimentosRes] = await Promise.all([
-      supabase.from('leads').select('*').eq('is_reaquecido', false).order('score', { ascending: false }),
-      supabase.from('leads').select('*').eq('is_reaquecido', true).order('reaquecido_em', { ascending: false }),
-      supabase.from('clients').select('*').gte('last_interaction', ontem).order('last_interaction', { ascending: false }),
-      supabase.from('atendimentos').select('lead_id, owner_id, status, prazo_sla, tipo_espera'),
-    ])
+    if (!allLeads) { setLeads([]); return }
 
-    const atMap = new Map((atendimentosRes.data || []).map((a: any) => [a.lead_id, a]))
+    // 2. Get atendimentos to filter by estado_painel
+    const identityIds = allLeads.map(l => l.identity_id).filter(Boolean)
+    const { data: atendimentos } = identityIds.length > 0
+      ? await supabase
+          .from('atendimentos')
+          .select('identity_id, estado_painel, owner_id')
+          .in('identity_id', identityIds)
+      : { data: [] as any[] }
 
-    const allLeads = [
-      ...(reaquecidosRes.data || []).map((l: any) => ({ ...l, _tipo: 'reaquecido' })),
-      ...(clientesReaquecidosRes.data || []).map((c: any) => ({ ...c, _tipo: 'cliente_reaquecido', score: 0, prioridade: 'MEDIO', area: 'cliente' })),
-      ...(leadsRes.data || []).map((l: any) => ({ ...l, _tipo: 'lead' })),
-    ]
+    const atMap = new Map((atendimentos || []).map((a: any) => [a.identity_id, a]))
 
-    const urgList: LeadWithMeta[] = []
-    const emCursoList: LeadWithMeta[] = []
-    const aguardList: LeadWithMeta[] = []
-
-    for (const lead of allLeads) {
-      const at = atMap.get(lead.id)
-      const mapped: LeadWithMeta = {
-        id: lead.id, nome: lead.nome, telefone: lead.telefone, area: lead.area,
-        area_bot: lead.area_bot, area_humano: lead.area_humano, score: lead.score || 0,
-        prioridade: lead.prioridade || 'FRIO', canal_origem: lead.canal_origem,
-        created_at: lead.created_at, resumo: lead.resumo, corrigido: lead.corrigido ?? false,
-        is_reaquecido: lead.is_reaquecido, _tipo: lead._tipo,
-        identity_id: lead.identity_id, ultima_msg_em: lead.ultima_msg_em,
-        channel_user_id: lead.channel_user_id,
-      }
-
-      if (at?.status === 'aguardando') {
-        mapped._prazoSla = at.prazo_sla
-        mapped._slaVencido = at.prazo_sla ? new Date(at.prazo_sla).getTime() < now : false
-        aguardList.push(mapped)
-      } else if (at?.status === 'aberto' && at.owner_id === operadorId) {
-        emCursoList.push(mapped)
-      } else if (!at || lead._tipo === 'reaquecido') {
-        urgList.push(mapped)
-      }
-    }
-
-    // SLA vencidos no topo dos aguardando
-    aguardList.sort((a, b) => {
-      if (a._slaVencido && !b._slaVencido) return -1
-      if (!a._slaVencido && b._slaVencido) return 1
-      return 0
+    // 3. Filter: only leads where estado_painel IS NULL or 'lead'
+    const filtered = allLeads.filter((lead: any) => {
+      if (!lead.identity_id) return true // no identity = new lead = show
+      const at = atMap.get(lead.identity_id)
+      if (!at) return true // no atendimento = triagem = show
+      return at.estado_painel === null || at.estado_painel === 'lead'
     })
 
-    // Fetch last messages for all leads (client messages only, no bot/system)
-    const allLeadIds = [...urgList, ...emCursoList, ...aguardList].map(l => l.id)
-    if (allLeadIds.length > 0) {
-      const { data: lastMsgs } = await supabase
-        .from('mensagens')
-        .select('lead_id, conteudo')
-        .in('lead_id', allLeadIds)
-        .neq('de', 'bot')
-        .neq('tipo', 'sistema')
-        .neq('tipo', 'nota_interna')
-        .order('created_at', { ascending: false })
-
-      if (lastMsgs) {
-        const msgMap = new Map<string, string>()
-        for (const msg of lastMsgs) {
-          if (!msgMap.has(msg.lead_id)) {
-            msgMap.set(msg.lead_id, msg.conteudo)
-          }
-        }
-        for (const list of [urgList, emCursoList, aguardList]) {
-          for (const lead of list) {
-            lead.lastMessage = msgMap.get(lead.id) || undefined
-          }
-        }
+    // 4. Dedup by identity_id (keep most recent — already sorted by ultima_msg_em DESC)
+    const identityDedup = new Map<string, typeof filtered[0]>()
+    for (const lead of filtered) {
+      const key = lead.identity_id || lead.id
+      if (!identityDedup.has(key)) {
+        identityDedup.set(key, lead)
       }
     }
 
-    // Classify inactivity status based on last CLIENT message
-    for (const list of [urgList, emCursoList, aguardList]) {
-      for (const lead of list) {
-        lead._inactivityStatus = classificarInatividade(lead.ultima_msg_em || lead.created_at)
+    // 5. Take first 100
+    const result = Array.from(identityDedup.values()).slice(0, 100)
+
+    // 6. Fetch owner names
+    const ownerIds = Array.from(new Set(result.map(l => atMap.get(l.identity_id)?.owner_id).filter(Boolean)))
+    const ownerNameMap = new Map<string, string>()
+    if (ownerIds.length > 0) {
+      const { data: ops } = await supabase.from('operadores').select('id, nome').in('id', ownerIds)
+      if (ops) ops.forEach((op: any) => ownerNameMap.set(op.id, op.nome || 'Operador'))
+    }
+
+    // 7. Fetch last messages
+    const leadIds = result.map(l => l.id)
+    const { data: lastMsgs } = leadIds.length > 0
+      ? await supabase
+          .from('mensagens')
+          .select('lead_id, conteudo')
+          .in('lead_id', leadIds)
+          .neq('de', 'bot')
+          .neq('tipo', 'sistema')
+          .neq('tipo', 'nota_interna')
+          .order('created_at', { ascending: false })
+      : { data: [] as any[] }
+
+    const msgMap = new Map<string, string>()
+    if (lastMsgs) {
+      for (const msg of lastMsgs) {
+        if (!msgMap.has(msg.lead_id)) msgMap.set(msg.lead_id, msg.conteudo)
       }
     }
 
-    setUrgentes(urgList)
-    setEmAtendimento(emCursoList)
-    setAguardando(aguardList)
-  }, [operadorId, now])
+    // 8. Map to LeadWithMeta
+    const mapped: LeadWithMeta[] = result.map((lead: any) => ({
+      ...lead,
+      corrigido: lead.corrigido ?? false,
+      _tipo: lead.is_reaquecido ? 'reaquecido' : 'lead',
+      ownerName: atMap.get(lead.identity_id)?.owner_id
+        ? ownerNameMap.get(atMap.get(lead.identity_id)!.owner_id)
+        : undefined,
+      lastMessage: msgMap.get(lead.id),
+      _conversationStatus: getConversationStatus(lead.ultima_msg_em || null, lead.created_at),
+    }))
+
+    setLeads(mapped)
+  }, [operadorId])
 
   useEffect(() => { if (operadorId) loadLeads() }, [loadLeads, operadorId])
 
+  // Remove lead from local list when closed via PainelLead
+  useEffect(() => {
+    if (!closedLeadId) return
+    setLeads(prev => prev.filter(l => l.id !== closedLeadId))
+  }, [closedLeadId])
+
+  // Debounced loadLeads for socket events (300ms)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const loadLeadsDebounced = useCallback(debounce(() => loadLeads(), 300), [loadLeads])
+
+  // Socket handlers — optimistic + debounce
   useEffect(() => {
     if (!socket) return
-    const reload = () => loadLeads()
-    socket.on('lead_assumido', reload)
-    socket.on('nova_mensagem_salva', reload)
-    socket.on('lead_encerrado', reload)
-    socket.on('lead_reaquecido', reload)
-    socket.on('lead_status_changed', reload)
-    return () => {
-      socket.off('lead_assumido', reload)
-      socket.off('nova_mensagem_salva', reload)
-      socket.off('lead_encerrado', reload)
-      socket.off('lead_reaquecido', reload)
-      socket.off('lead_status_changed', reload)
+
+    const handleNovaMensagem = (msg: any) => {
+      // Optimistic: move to top
+      setLeads(prev => {
+        const idx = prev.findIndex(l => l.id === msg.lead_id)
+        if (idx <= 0) return prev
+        const lead = prev[idx]
+        return [{ ...lead, ultima_msg_em: msg.created_at, lastMessage: msg.conteudo, ultima_msg_de: 'cliente' }, ...prev.slice(0, idx), ...prev.slice(idx + 1)]
+      })
+      loadLeadsDebounced()
     }
+
+    socket.on('nova_mensagem_salva', handleNovaMensagem)
+    socket.on('lead_assumido', loadLeadsDebounced)
+    socket.on('lead_encerrado', loadLeadsDebounced)
+    socket.on('lead_reaquecido', loadLeadsDebounced)
+    socket.on('estado_painel_changed', loadLeadsDebounced)
+    socket.on('conversa_classificada', (data: { lead_id: string }) => {
+      setLeads(prev => prev.filter(l => l.id !== data.lead_id))
+    })
+    socket.on('assignment_updated', (data: { lead_id: string; owner_name: string }) => {
+      setLeads(prev => prev.map(l => l.id === data.lead_id ? { ...l, ownerName: data.owner_name } : l))
+    })
+
+    return () => {
+      socket.off('nova_mensagem_salva', handleNovaMensagem)
+      socket.off('lead_assumido', loadLeadsDebounced)
+      socket.off('lead_encerrado', loadLeadsDebounced)
+      socket.off('lead_reaquecido', loadLeadsDebounced)
+      socket.off('estado_painel_changed', loadLeadsDebounced)
+      socket.off('conversa_classificada')
+      socket.off('assignment_updated')
+    }
+  }, [socket, loadLeadsDebounced])
+
+  // Reconnect: refetch leads when socket reconnects
+  useEffect(() => {
+    if (!socket) return
+    const handleReconnect = () => { loadLeads() }
+    socket.on('connect', handleReconnect)
+    return () => { socket.off('connect', handleReconnect) }
   }, [socket, loadLeads])
 
   // Cleanup search timeout on unmount
@@ -197,6 +239,72 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     }
   }, [])
+
+  // ── Filtering (single useMemo) ──
+  const filteredLeads = useMemo(() => {
+    if (searchQuery.trim().length > 0) return searchResults
+
+    let list = leads
+
+    if (activePill === 'aguardando') {
+      list = leads.filter(l => {
+        if (l.ultima_msg_de !== 'operador') return false
+        const diffMs = Date.now() - new Date(l.ultima_msg_em || l.created_at).getTime()
+        return diffMs < 2 * 60 * 60 * 1000
+      })
+    } else if (activePill === 'sem_retorno') {
+      list = leads.filter(l => {
+        if (l.ultima_msg_de !== 'operador') return false
+        const diffMs = Date.now() - new Date(l.ultima_msg_em || l.created_at).getTime()
+        return diffMs >= 2 * 60 * 60 * 1000 && diffMs < 7 * 24 * 60 * 60 * 1000
+      })
+    }
+
+    return list
+  }, [leads, activePill, searchQuery, searchResults])
+
+  // ── Urgency sort ──
+  const prioritizedLeads = useMemo(() => {
+    return [...filteredLeads].sort((a, b) => {
+      const ua = getUrgencyStyle(a.ultima_msg_em || null, a.ultima_msg_de || null)
+      const ub = getUrgencyStyle(b.ultima_msg_em || null, b.ultima_msg_de || null)
+      const levelOrder = { critical: 0, alert: 1, normal: 2 }
+      const diff = levelOrder[ua.level] - levelOrder[ub.level]
+      if (diff !== 0) return diff
+      // Within same level: most recent first (already sorted by ultima_msg_em DESC)
+      return 0
+    })
+  }, [filteredLeads])
+
+  // ── Critical pressure layer — split into critical vs non-critical ──
+  const { criticalLeads, nonCriticalLeads, criticalCount } = useMemo(() => {
+    return splitLeads(prioritizedLeads, (lead) =>
+      getUrgencyStyle(lead.ultima_msg_em || null, lead.ultima_msg_de || null)
+    )
+  }, [prioritizedLeads])
+
+  // ── Sound alert on critical transition ──
+  useCriticalAlert(prioritizedLeads, operadorId)
+
+  // Auto-disable critical filter when no more critical leads
+  useEffect(() => {
+    if (criticalCount === 0 && filterCriticalOnly) {
+      setFilterCriticalOnly(false)
+    }
+  }, [criticalCount, filterCriticalOnly])
+
+  // ── Counters ──
+  const counters = useMemo(() => {
+    let waiting = 0, noResponse = 0
+    for (const l of leads) {
+      if (l.ultima_msg_de === 'operador') {
+        const diffMs = Date.now() - new Date(l.ultima_msg_em || l.created_at).getTime()
+        if (diffMs < 2 * 60 * 60 * 1000) waiting++
+        else if (diffMs < 7 * 24 * 60 * 60 * 1000) noResponse++
+      }
+    }
+    return { total: leads.length, waiting, noResponse }
+  }, [leads])
 
   // ── Search logic with 300ms debounce ──
   function handleSearch(query: string) {
@@ -215,7 +323,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
         .from('leads')
         .select('*')
         .or(`nome.ilike.%${query}%,telefone.ilike.%${query}%`)
-        .order('score', { ascending: false })
+        .order('ultima_msg_em', { ascending: false, nullsFirst: false })
         .limit(20)
 
       if (data) {
@@ -228,67 +336,20 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
     }, 300)
   }
 
-  // ── Build flat list: DEDUP by identity_id, keep most recent lead per identity ──
-  function getAllLeadsFlat(): LeadWithMeta[] {
-    const all = [...urgentes, ...emAtendimento, ...aguardando]
-    // Dedup by identity_id — keep the lead with most recent ultima_msg_em or created_at
-    const identityMap = new Map<string, LeadWithMeta>()
-    for (const lead of all) {
-      const key = lead.identity_id || lead.id
-      const existing = identityMap.get(key)
-      if (!existing) {
-        identityMap.set(key, lead)
-      } else {
-        const existingTime = existing.ultima_msg_em || existing.created_at
-        const currentTime = lead.ultima_msg_em || lead.created_at
-        if (new Date(currentTime) > new Date(existingTime)) {
-          identityMap.set(key, lead)
-        }
-      }
+  // Fade transition state for pill changes
+  const [fadeIn, setFadeIn] = useState(true)
+
+  // Auto-select first lead if none selected
+  useEffect(() => {
+    if (!selectedLeadId && prioritizedLeads.length > 0) {
+      onSelectLead(prioritizedLeads[0])
     }
-    const unique = Array.from(identityMap.values())
-    // Sort by most recent activity (ultima_msg_em or created_at)
-    unique.sort((a, b) => {
-      const timeA = a.ultima_msg_em || a.created_at
-      const timeB = b.ultima_msg_em || b.created_at
-      return new Date(timeB).getTime() - new Date(timeA).getTime()
-    })
-    return unique
-  }
+  }, [prioritizedLeads.length, selectedLeadId])
 
-  // ── Filter leads by active pill ──
-  function getFilteredLeads(): LeadWithMeta[] {
-    const hasSearch = searchQuery.trim().length > 0
-    let leads: LeadWithMeta[]
-
-    if (hasSearch) {
-      leads = [...searchResults]
-    } else {
-      leads = getAllLeadsFlat()
-    }
-
-    // Apply inactivity filter
-    if (activePill === 'ativos') {
-      leads = leads.filter(l => l._inactivityStatus === 'ativo')
-    } else if (activePill === 'esfriando') {
-      leads = leads.filter(l => l._inactivityStatus === 'esfriando')
-    } else if (activePill === 'sem_resposta') {
-      leads = leads.filter(l => l._inactivityStatus === 'sem_resposta')
-    }
-
-    // Sort: ativos first, then esfriando, then sem_resposta
-    const statusOrder: Record<string, number> = { ativo: 0, esfriando: 1, sem_resposta: 2 }
-    leads.sort((a, b) => {
-      const orderA = statusOrder[a._inactivityStatus || 'sem_resposta'] ?? 2
-      const orderB = statusOrder[b._inactivityStatus || 'sem_resposta'] ?? 2
-      if (orderA !== orderB) return orderA - orderB
-      // Within same status, sort by most recent
-      const timeA = a.ultima_msg_em || a.created_at
-      const timeB = b.ultima_msg_em || b.created_at
-      return new Date(timeB).getTime() - new Date(timeA).getTime()
-    })
-
-    return leads
+  function handlePillChange(pill: typeof activePill) {
+    setFadeIn(false)
+    setActivePill(pill)
+    setTimeout(() => setFadeIn(true), 10)
   }
 
   // ── New contact save ──
@@ -346,161 +407,266 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
     }
   }
 
-  const total = urgentes.length + emAtendimento.length + aguardando.length
-  const filteredLeads = getFilteredLeads()
-  const allFlat = getAllLeadsFlat()
-  const aguardandoCount = allFlat.filter(l => l._inactivityStatus === 'esfriando' || l._inactivityStatus === 'sem_resposta').length
-
   function renderLeadItem(lead: LeadWithMeta) {
     const isSelected = lead.id === selectedLeadId
     const hasSearch = searchQuery.trim().length > 0
 
-    // Border-left by propensity score (calorimetria)
-    const borderLeftClass = lead.score >= 7
-      ? 'border-l-4 border-l-score-hot'
-      : lead.score >= 4
-      ? 'border-l-4 border-l-score-warm'
-      : 'border-l-4 border-l-score-cold'
+    // Urgency indicators
+    const urgency = getUrgencyStyle(lead.ultima_msg_em || null, lead.ultima_msg_de || null)
+    const triagemSla = getTriagemSLA(lead.created_at)
 
-    const displayName = lead.nome || displayPhone(lead.telefone) || lead.channel_user_id || 'Contato'
+    // Score-based border color
+    const borderColor = lead.score >= 7
+      ? 'border-blue-600'
+      : lead.score >= 4
+      ? 'border-yellow-400'
+      : 'border-gray-400'
+
+    const displayName = lead.nome || displayPhone(lead.telefone) || (lead.channel_user_id ? 'Telegram' : 'Contato')
+    const intencao = getIntencaoAtual(lead as any)
     const preview = lead.lastMessage
-      ? (lead.lastMessage.length > 45 ? lead.lastMessage.slice(0, 45) + '...' : lead.lastMessage)
-      : ''
+      ? (lead.lastMessage.length > 50 ? lead.lastMessage.slice(0, 50) + '...' : lead.lastMessage)
+      : intencao
+
+    // Responsible display
+    const responsibleText = lead.ownerName
+      ? (lead.ownerName === operadorId ? 'Você' : lead.ownerName)
+      : 'Livre'
+    const responsibleColor = lead.ownerName
+      ? (lead.ownerName === operadorId ? 'text-blue-600' : 'text-gray-400')
+      : 'text-yellow-600'
+
+    // Priority visual layer — subtle, no text, operator "feels" it
+    const diffMs = Date.now() - new Date(lead.ultima_msg_em || lead.created_at).getTime()
+    const diffMin = diffMs / 60000
+    const hasUnread = (lead.unreadCount ?? 0) > 0
+
+    const isUrgent = diffMin < 5 || hasUnread
+    const needsAttention = diffMin >= 30 && diffMin < 1440
+    const isStale = diffMin >= 1440
+
+    const nameWeight = isUrgent ? 'font-black' : 'font-bold'
+    const cardBg = isUrgent && !isSelected ? 'bg-blue-50/30' : ''
+    const timeColor = urgency.level === 'critical' ? urgency.textColor : isUrgent ? 'text-blue-600' : needsAttention ? 'text-yellow-600' : isStale ? 'text-gray-200' : 'text-gray-300'
+    const cardOpacity = isStale ? 'opacity-60' : 'opacity-100'
+    const slaLeftBorder = triagemSla ? 'border-l-red-500' : ''
+
+    // Status dot color
+    const statusDotColor = lead._conversationStatus?.status === 'active'
+      ? 'bg-blue-500'
+      : lead._conversationStatus?.status === 'waiting'
+      ? 'bg-yellow-500'
+      : 'bg-gray-400'
 
     return (
-      <div key={lead.id}
+      <button
+        key={lead.id}
         onClick={() => {
           onSelectLead(lead)
+
+          // --- Behavior tracking (fire-and-forget) ---
+          if (operadorId) {
+            const urgency = getUrgencyStyle(lead.ultima_msg_em || null, lead.ultima_msg_de || null)
+            const wasCritical = urgency.level === 'critical'
+            const allLeads = [...criticalLeads, ...nonCriticalLeads]
+            const positionInQueue = allLeads.findIndex(l => l.id === lead.id)
+
+            const events = resolveLeadSelectEvents({
+              lead,
+              userId: operadorId,
+              wasCritical,
+              criticalLeadIds: criticalLeads.map(l => l.id),
+              positionInQueue,
+            })
+            for (const event of events) {
+              trackEvent(event)
+            }
+          }
+
           if (socket && operadorId && !lead.is_reaquecido) {
             socket.emit('assumir_lead', { lead_id: lead.id, operador_id: operadorId })
           }
         }}
-        className={`px-3 py-3 cursor-pointer border-b border-border transition-colors ${
-          isSelected ? 'bg-bg-surface-hover' : 'hover:bg-bg-surface-hover'
-        } ${borderLeftClass}`}
+        className={`w-full p-[14px] flex gap-3 text-left transition-all border-l-4 rounded-xl ${cardOpacity} ${
+          isSelected
+            ? `bg-white shadow-sm ${borderColor}`
+            : `${cardBg || 'bg-transparent'} ${slaLeftBorder || 'border-transparent'} hover:bg-white/50`
+        }`}
       >
-        <div className="flex items-center gap-3">
-          {/* Avatar */}
-          <div className="w-10 h-10 rounded-full bg-bg-surface-hover flex items-center justify-center text-sm font-medium text-text-secondary shrink-0">
-            {getInitials(lead.nome, lead.telefone)}
-          </div>
+        {/* Avatar with status dot */}
+        <div className="relative w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center font-bold uppercase bg-gray-100 text-gray-300 overflow-hidden">
+          {getInitials(lead.nome, lead.telefone)}
+          <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white z-10 ${statusDotColor}`} />
+        </div>
 
-          {/* Content */}
-          <div className="flex-1 min-w-0">
-            {/* Row 1: Name + Time + Status tag */}
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-text-primary truncate">
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          {/* Line 1: Name ... Time */}
+          <div className="flex justify-between items-baseline mb-0.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h3 className={`${nameWeight} text-gray-900 truncate text-sm`}>
                 {hasSearch ? highlightMatch(displayName, searchQuery) : displayName}
-              </span>
-              <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                {lead._inactivityStatus && lead._inactivityStatus !== 'ativo' && (
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_STYLES[lead._inactivityStatus].bg} ${STATUS_STYLES[lead._inactivityStatus].text}`}>
-                    {STATUS_STYLES[lead._inactivityStatus].label}
-                  </span>
-                )}
-                <span className="text-[11px] text-text-muted">
-                  {timeAgo(lead.ultima_msg_em || lead.created_at)}
-                </span>
-              </div>
+              </h3>
             </div>
-
-            {/* Row 2: Last message preview */}
-            <p className="text-xs text-text-muted truncate mt-0.5">
-              {preview || '\u00A0'}
-            </p>
+            <div className="flex items-center gap-2">
+              {urgency.level === 'critical' && (
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              )}
+              <div className={cn(
+                "w-2 h-2 rounded-full",
+                lead.score >= 7 ? "bg-blue-500" : lead.score >= 4 ? "bg-yellow-400" : "bg-gray-300"
+              )} />
+              <span className={`text-[9px] font-bold uppercase shrink-0 ${timeColor}`}>
+                {timeAgo(lead.ultima_msg_em || lead.created_at)}
+              </span>
+            </div>
+          </div>
+          {/* Line 2: Preview + Score */}
+          <div className="flex justify-between items-baseline">
+            <p className="text-xs text-gray-400 truncate font-medium flex-1">{preview || '\u00A0'}</p>
+            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+              {urgency.label && <span className={`text-[9px] font-bold ${urgency.textColor}`}>{urgency.label}</span>}
+              <span className="text-[9px] font-bold text-gray-300">{lead.score}/10</span>
+            </div>
           </div>
         </div>
-      </div>
+      </button>
     )
   }
 
-  const pillClasses = (pill: 'tudo' | 'ativos' | 'esfriando' | 'sem_resposta') =>
-    `px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-      activePill === pill
-        ? 'bg-accent text-white'
-        : 'bg-bg-surface text-text-secondary hover:bg-bg-surface-hover'
-    }`
-
   return (
-    <div className="w-[280px] h-full bg-sidebar-bg overflow-y-auto flex flex-col">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-border">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-text-primary">{COPY.conversas.operacaoAtiva}</span>
-          <span className="bg-accent/10 text-accent text-xs font-mono font-medium px-2 py-0.5 rounded-full">{total}</span>
-        </div>
-        {aguardandoCount > 0 && (
-          <p className="text-[11px] text-text-muted mt-1">{aguardandoCount} leads aguardando resposta</p>
+    <div className="w-80 h-full bg-[#F1F3F6] flex flex-col border-r border-[#E6E8EC]/20">
+      {/* Header with tabs and search */}
+      <div className="pt-6 px-4 pb-4 border-b border-[#E6E8EC]/20 flex flex-col">
+        <h2 className="text-xl font-bold text-gray-900 mb-3 tracking-tight">Conversas</h2>
+        {(counters.waiting + counters.noResponse) > 0 && (
+          <p className="text-[11px] text-gray-400 mb-2">{counters.waiting + counters.noResponse} leads aguardando resposta</p>
         )}
-      </div>
 
-      {/* Search bar + "+" button */}
-      <div className="px-3 pt-3 pb-2 flex items-center gap-2">
-        <div className="flex-1 relative">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
-          </svg>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => handleSearch(e.target.value)}
-            placeholder={COPY.busca.placeholder}
-            className="w-full bg-bg-surface rounded-full pl-9 pr-3 py-2 text-xs text-text-primary placeholder:text-text-muted outline-none focus:ring-1 focus:ring-accent/30"
-          />
+        {/* Underline tabs */}
+        <div className="flex items-center gap-4 mb-4 overflow-x-auto scrollbar-hide">
+          <button
+            onClick={() => handlePillChange('todos')}
+            className={`flex items-center gap-1.5 text-[11px] whitespace-nowrap transition-all relative border-b-2 pb-1 ${
+              activePill === 'todos'
+                ? 'text-blue-600 font-semibold border-blue-400'
+                : 'text-[#9CA3AF] font-normal border-transparent hover:text-gray-500'
+            }`}
+          >
+            Todos {counters.total}
+          </button>
+          <button
+            onClick={() => handlePillChange('aguardando')}
+            className={`text-[11px] whitespace-nowrap transition-all border-b-2 pb-1 ${
+              activePill === 'aguardando'
+                ? 'text-blue-600 font-semibold border-blue-400'
+                : 'text-[#9CA3AF] font-normal border-transparent hover:text-gray-500'
+            }`}
+          >
+            Aguardando {counters.waiting}
+          </button>
+          <button
+            onClick={() => handlePillChange('sem_retorno')}
+            className={`text-[11px] whitespace-nowrap transition-all border-b-2 pb-1 ${
+              activePill === 'sem_retorno'
+                ? 'text-blue-600 font-semibold border-blue-400'
+                : 'text-[#9CA3AF] font-normal border-transparent hover:text-gray-500'
+            }`}
+          >
+            Sem retorno {counters.noResponse}
+          </button>
         </div>
-        <button
-          onClick={() => setShowNewContactModal(true)}
-          className="w-8 h-8 rounded-full bg-accent text-white flex items-center justify-center hover:bg-accent-hover transition-colors shrink-0"
-          aria-label={COPY.busca.novoContato}
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-        </button>
+
+        {/* Search bar */}
+        <div className="relative flex items-center gap-2">
+          <div className="flex-1 relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+              placeholder="Buscar cliente..."
+              className="w-full pl-9 pr-4 py-2.5 bg-[#F7F8FA] border border-[#E6E8EC]/10 rounded-xl text-xs focus:ring-1 focus:ring-blue-100 outline-none placeholder:text-gray-300 shadow-sm"
+            />
+          </div>
+          <button
+            onClick={() => setShowNewContactModal(true)}
+            className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition-colors shrink-0"
+            aria-label={COPY.busca.novoContato}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      {/* Filter pills */}
-      <div className="px-3 pb-2 flex items-center gap-1.5">
-        <button className={pillClasses('tudo')} onClick={() => setActivePill('tudo')}>Todos</button>
-        <button className={pillClasses('ativos')} onClick={() => setActivePill('ativos')}>Ativos</button>
-        <button className={pillClasses('esfriando')} onClick={() => setActivePill('esfriando')}>Esfriando</button>
-        <button className={pillClasses('sem_resposta')} onClick={() => setActivePill('sem_resposta')}>Sem resposta</button>
-      </div>
-
-      {/* Lead list — FLAT, no sections */}
-      <div className="flex-1 overflow-y-auto">
+      {/* Lead list — with critical pressure layer */}
+      <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-2 scrollbar-hide transition-opacity duration-200" style={{ opacity: fadeIn ? 1 : 0 }}>
+        {/* Critical banner — clickable toggle filter */}
+        {criticalCount > 0 && (
+          <button
+            onClick={() => setFilterCriticalOnly(prev => !prev)}
+            className={`sticky top-0 z-10 mx-0 mb-1 px-3 py-2 rounded-lg text-left w-full transition-all ${
+              filterCriticalOnly
+                ? 'bg-red-600 border border-red-700'
+                : 'bg-red-50 border border-red-300 hover:bg-red-100'
+            }`}
+          >
+            <p className={`text-xs font-bold ${filterCriticalOnly ? 'text-white' : 'text-red-700'}`}>
+              🔴 {criticalCount} lead{criticalCount > 1 ? 's' : ''} aguardando há mais de 30min
+              {filterCriticalOnly && <span className="ml-2 opacity-75">✕ ver todos</span>}
+            </p>
+          </button>
+        )}
         {isSearching && (
-          <p className="px-3 py-4 text-xs text-text-muted text-center">Buscando...</p>
+          <p className="px-3 py-4 text-xs text-gray-400 text-center">Buscando...</p>
         )}
 
         {!isSearching && filteredLeads.length === 0 && searchQuery.trim().length > 0 && (
           <div className="px-3 py-4 text-center">
-            <p className="text-xs text-text-muted">{COPY.busca.nenhumResultado}</p>
+            <p className="text-xs text-gray-400">{COPY.busca.nenhumResultado}</p>
             <button
               onClick={() => setShowNewContactModal(true)}
-              className="text-xs text-accent hover:underline mt-1"
+              className="text-xs text-blue-600 hover:underline mt-1"
             >
               {COPY.busca.adicionarNovo}
             </button>
           </div>
         )}
 
-        {!isSearching && filteredLeads.length === 0 && searchQuery.trim().length === 0 && (
-          <p className="px-3 py-4 text-xs text-text-muted text-center">Nenhum prospecto ativo</p>
+        {!isSearching && prioritizedLeads.length === 0 && searchQuery.trim().length === 0 && (
+          <p className="px-3 py-4 text-xs text-gray-400 text-center">Nenhum prospecto ativo</p>
         )}
 
-        {!isSearching && filteredLeads.map(renderLeadItem)}
+        {/* Render in two sections: critical leads, separator, then rest */}
+        {!isSearching && criticalLeads.length > 0 && (
+          <>
+            {criticalLeads.map(renderLeadItem)}
+            {!filterCriticalOnly && nonCriticalLeads.length > 0 && (
+              <div className="flex items-center gap-2 px-3 py-1.5">
+                <div className="flex-1 h-px bg-gray-200" />
+                <span className="text-[10px] font-bold uppercase text-red-500">🔴 URGENTE</span>
+                <div className="flex-1 h-px bg-gray-200" />
+              </div>
+            )}
+            {!filterCriticalOnly && nonCriticalLeads.map(renderLeadItem)}
+          </>
+        )}
+        {!isSearching && criticalLeads.length === 0 && !filterCriticalOnly && prioritizedLeads.map(renderLeadItem)}
       </div>
 
       {/* New Contact Modal */}
       {showNewContactModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-bg-primary rounded-lg shadow-xl w-[360px] p-5">
+          <div className="bg-white rounded-xl shadow-xl w-[360px] p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-medium text-text-primary">{COPY.busca.novoContato}</h3>
+              <h3 className="text-sm font-bold text-gray-900">{COPY.busca.novoContato}</h3>
               <button
                 onClick={() => setShowNewContactModal(false)}
-                className="text-text-muted hover:text-text-primary transition-colors"
+                className="text-gray-400 hover:text-gray-600 transition-colors"
                 aria-label="Fechar"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -511,33 +677,33 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-text-secondary mb-1">Nome</label>
+                <label className="block text-xs text-gray-400 mb-1">Nome</label>
                 <input
                   type="text"
                   value={newContact.nome}
                   onChange={(e) => setNewContact(p => ({ ...p, nome: e.target.value }))}
-                  className="w-full bg-bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary outline-none focus:ring-1 focus:ring-accent/30"
+                  className="w-full bg-[#F7F8FA] border border-[#E6E8EC]/10 rounded-xl px-3 py-2 text-sm text-gray-900 outline-none focus:ring-1 focus:ring-blue-100"
                   placeholder="Nome do contato"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-text-secondary mb-1">Telefone</label>
+                <label className="block text-xs text-gray-400 mb-1">Telefone</label>
                 <input
                   type="text"
                   value={newContact.telefone}
                   onChange={(e) => setNewContact(p => ({ ...p, telefone: e.target.value }))}
-                  className="w-full bg-bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary outline-none focus:ring-1 focus:ring-accent/30"
+                  className="w-full bg-[#F7F8FA] border border-[#E6E8EC]/10 rounded-xl px-3 py-2 text-sm text-gray-900 outline-none focus:ring-1 focus:ring-blue-100"
                   placeholder="+55 (21) 99999-9999"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-text-secondary mb-1">Canal</label>
+                <label className="block text-xs text-gray-400 mb-1">Canal</label>
                 <select
                   value={newContact.canal}
                   onChange={(e) => setNewContact(p => ({ ...p, canal: e.target.value }))}
-                  className="w-full bg-bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary outline-none focus:ring-1 focus:ring-accent/30"
+                  className="w-full bg-[#F7F8FA] border border-[#E6E8EC]/10 rounded-xl px-3 py-2 text-sm text-gray-900 outline-none focus:ring-1 focus:ring-blue-100"
                 >
                   <option value="whatsapp">WhatsApp</option>
                   <option value="telegram">Telegram</option>
@@ -545,12 +711,12 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
               </div>
 
               <div>
-                <label className="block text-xs text-text-secondary mb-1">{COPY.qualificacao.segmento}</label>
+                <label className="block text-xs text-gray-400 mb-1">{COPY.qualificacao.segmento}</label>
                 <input
                   type="text"
                   value={newContact.segmento}
                   onChange={(e) => setNewContact(p => ({ ...p, segmento: e.target.value }))}
-                  className="w-full bg-bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary outline-none focus:ring-1 focus:ring-accent/30"
+                  className="w-full bg-[#F7F8FA] border border-[#E6E8EC]/10 rounded-xl px-3 py-2 text-sm text-gray-900 outline-none focus:ring-1 focus:ring-blue-100"
                   placeholder="Ex: Trabalhista"
                 />
               </div>
@@ -559,14 +725,14 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead }: Props
             <div className="flex items-center justify-end gap-2 mt-5">
               <button
                 onClick={() => setShowNewContactModal(false)}
-                className="px-4 py-2 text-xs font-medium text-text-secondary hover:text-text-primary transition-colors"
+                className="px-4 py-2 text-xs font-medium text-gray-400 hover:text-gray-600 transition-colors"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleSaveNewContact}
                 disabled={isSavingContact || !newContact.nome.trim() || !newContact.telefone.trim()}
-                className="px-4 py-2 text-xs font-medium bg-accent text-white rounded-md hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 text-xs font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSavingContact ? 'Salvando...' : 'Salvar'}
               </button>
