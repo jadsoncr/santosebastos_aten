@@ -23,11 +23,11 @@ export default async function DashboardLayout({
     || email.split('@')[0]
 
   return (
-    <div className="flex h-screen bg-bg-primary">
+    <div className="flex h-screen w-full bg-white font-sans text-gray-900 overflow-hidden">
       <Sidebar role={role} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header displayName={displayName} role={role} />
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto">
           <SocketProvider>
             {children}
           </SocketProvider>

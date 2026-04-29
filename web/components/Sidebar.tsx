@@ -2,6 +2,9 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { createClient } from '@/utils/supabase/client'
+import { MessageSquare, LayoutGrid, DollarSign, Archive, Settings, LogOut, Zap, BarChart3 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { COPY } from '@/utils/copy'
 
 interface SidebarProps {
@@ -9,47 +12,66 @@ interface SidebarProps {
 }
 
 const links = [
-  { href: '/tela1', label: COPY.sidebar.captacao },
-  { href: '/tela2', label: COPY.sidebar.carteira },
-  { href: '/financeiro', label: COPY.sidebar.financeiro, ownerOnly: true },
-  { href: '/backoffice/segmentos', label: COPY.sidebar.backoffice, ownerOnly: true },
+  { href: '/cco', label: 'Painel', icon: BarChart3 },
+  { href: '/tela1', label: 'Classificação', icon: MessageSquare },
+  { href: '/tela2', label: 'Atendimento', icon: LayoutGrid },
+  { href: '/encerrados', label: 'Oportunidades', icon: Archive },
+  { href: '/financeiro', label: 'Financeiro', icon: DollarSign, ownerOnly: true },
 ]
 
 export default function Sidebar({ role }: SidebarProps) {
   const pathname = usePathname()
 
   return (
-    <aside className="flex h-full w-sidebar flex-col bg-bg-surface border-r border-border">
-      <div className="px-5 py-4">
-        <span className="font-display text-lg font-bold text-text-primary">
-          BRO Resolve
-        </span>
+    <aside className="w-20 lg:w-64 flex-shrink-0 flex flex-col bg-white border-r border-gray-100 z-50 transition-all">
+      {/* Logo */}
+      <div className="h-16 flex items-center justify-center lg:justify-start px-6 border-b border-gray-50">
+        <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+          <Zap size={20} className="text-white fill-white" />
+        </div>
+        <span className="ml-3 font-black text-xl text-gray-900 hidden lg:block tracking-tighter">BRO Resolve</span>
       </div>
 
-      <nav className="flex-1 px-3 py-2">
-        <ul className="space-y-1">
-          {links.map((link) => {
-            if (link.ownerOnly && role !== 'owner') return null
+      {/* Nav */}
+      <nav className="flex-1 p-4 space-y-2">
+        {links.map((link) => {
+          if (link.ownerOnly && role !== 'owner') return null
 
-            const isActive = pathname === link.href
+          const isActive = pathname === link.href
 
-            return (
-              <li key={link.href}>
-                <Link
-                  href={link.href}
-                  className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-accent/10 text-accent'
-                      : 'text-text-muted hover:bg-bg-surface-hover hover:text-text-primary'
-                  }`}
-                >
-                  {link.label}
-                </Link>
-              </li>
-            )
-          })}
-        </ul>
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={cn(
+                "w-full flex items-center justify-center lg:justify-start p-3 rounded-xl transition-all group",
+                isActive
+                  ? "bg-blue-50 text-blue-600"
+                  : "text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+              )}
+            >
+              <link.icon size={22} className={cn("transition-transform group-active:scale-90", isActive ? "scale-110" : "")} />
+              <span className="ml-3 font-semibold hidden lg:block">{link.label}</span>
+            </Link>
+          )
+        })}
       </nav>
+
+      {/* Footer */}
+      <div className="p-4 space-y-2 border-t border-gray-50">
+        <button className="w-full flex items-center justify-center lg:justify-start p-3 rounded-xl text-gray-400 hover:bg-gray-50 transition-colors">
+          <Settings size={22} />
+          <span className="ml-3 font-semibold hidden lg:block">Configurações</span>
+        </button>
+        <button onClick={async () => {
+          const supabase = createClient()
+          await supabase.auth.signOut()
+          window.location.href = '/login'
+        }} className="w-full flex items-center justify-center lg:justify-start p-3 rounded-xl text-red-400 hover:bg-red-50 transition-colors">
+          <LogOut size={22} />
+          <span className="ml-3 font-semibold hidden lg:block">Sair</span>
+        </button>
+      </div>
     </aside>
   )
 }

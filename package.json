@@ -24,5 +24,8 @@
   },
   "devDependencies": {
     "jest": "^30.3.0"
+  },
+  "jest": {
+    "testPathIgnorePatterns": ["/node_modules/", "/web/", "/templates/"]
   }
 }

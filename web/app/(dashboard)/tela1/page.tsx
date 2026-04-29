@@ -30,11 +30,13 @@ export interface Lead {
   email?: string | null
   identity_id?: string | null
   ultima_msg_em?: string | null
+  ultima_msg_de?: string | null
   channel_user_id?: string | null
 }
 
 export default function Tela1Page() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
+  const [closedLeadId, setClosedLeadId] = useState<string | null>(null)
   const searchParams = useSearchParams()
   const supabase = createClient()
 
@@ -49,16 +51,18 @@ export default function Tela1Page() {
   }, [searchParams])
 
   const handleLeadClosed = () => {
+    if (selectedLead) setClosedLeadId(selectedLead.id)
     setSelectedLead(null)
   }
 
   return (
-    <div className="flex h-full -m-6">
+    <div className="flex h-full overflow-hidden bg-[#F7F8FA]">
       <ConversasSidebar
         selectedLeadId={selectedLead?.id ?? null}
         onSelectLead={setSelectedLead}
+        closedLeadId={closedLeadId}
       />
-      <div className="flex-1 border-x border-border">
+      <div className="flex-1 flex flex-col bg-[#F6F8FC]">
         <ChatCentral lead={selectedLead} />
       </div>
       <PainelLead lead={selectedLead} onLeadUpdate={setSelectedLead} onLeadClosed={handleLeadClosed} />

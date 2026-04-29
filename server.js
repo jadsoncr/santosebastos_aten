@@ -156,6 +156,12 @@ app.post('/webhook', async (req, res) => {
           if (savedMsg) {
             io.emit('nova_mensagem_salva', savedMsg);
           }
+
+          // Update ultima_msg_de (client sent file via webhook)
+          await db.from('leads').update({
+            ultima_msg_de: 'cliente',
+            ultima_msg_em: new Date().toISOString(),
+          }).eq('id', fileLeadId);
         } catch (docErr) {
           console.error(JSON.stringify({ level: 'error', msg: 'inbound_document_fail', lead_id: fileLeadId, erro: docErr.message, ts: new Date().toISOString() }));
           await db.from('mensagens').insert({
@@ -210,6 +216,12 @@ app.post('/webhook', async (req, res) => {
           if (savedMsg) {
             io.emit('nova_mensagem_salva', savedMsg);
           }
+
+          // Update ultima_msg_de (client sent photo via webhook)
+          await db.from('leads').update({
+            ultima_msg_de: 'cliente',
+            ultima_msg_em: new Date().toISOString(),
+          }).eq('id', fileLeadId);
         } catch (photoErr) {
           console.error(JSON.stringify({ level: 'error', msg: 'inbound_photo_fail', lead_id: fileLeadId, erro: photoErr.message, ts: new Date().toISOString() }));
           await db.from('mensagens').insert({
@@ -288,6 +300,12 @@ app.post('/webhook', async (req, res) => {
           if (savedMsg) {
             io.emit('nova_mensagem_salva', savedMsg);
           }
+
+          // Update ultima_msg_de (client sent audio via webhook)
+          await db.from('leads').update({
+            ultima_msg_de: 'cliente',
+            ultima_msg_em: new Date().toISOString(),
+          }).eq('id', fileLeadId);
         } catch (audioErr) {
           console.error('[INBOUND AUDIO FAIL]', { lead_id: fileLeadId, error: audioErr.message, stack: audioErr.stack?.split('\n').slice(0, 3).join(' | ') });
           console.error(JSON.stringify({ level: 'error', msg: 'inbound_audio_fail', lead_id: fileLeadId, erro: audioErr.message, ts: new Date().toISOString() }));
@@ -393,6 +411,13 @@ app.post('/webhook', async (req, res) => {
         if (savedMsg) {
           io.emit('nova_mensagem_salva', savedMsg);
         }
+
+        // Update ultima_msg_de (client sent file via WhatsApp)
+        await db.from('leads').update({
+          ultima_msg_de: 'cliente',
+          ultima_msg_em: new Date().toISOString(),
+        }).eq('id', fileLeadId);
+
         return res.json({ message: 'Arquivo processado.' });
       } catch (waFileErr) {
         console.error(JSON.stringify({ level: 'error', msg: 'inbound_whatsapp_file_fail', identity_id, erro: waFileErr.message, ts: new Date().toISOString() }));
@@ -496,7 +521,7 @@ app.post('/webhook', async (req, res) => {
         // Atualizar channel_user_id e ultima_msg
         await db.from('leads').update({
           channel_user_id,
-          ultima_msg_de: channel_user_id,
+          ultima_msg_de: 'cliente',
           ultima_msg_em: new Date().toISOString(),
         }).eq('id', existingLead.id);
 
@@ -561,6 +586,150 @@ app.post('/webhook', async (req, res) => {
       console.error('[upsert_imediato]', upsertErr.message);
     }
 
+    // ══════════════════════════════════════════════════════════════
+    // GLOBAL GUARD — Roteamento por estado_painel
+    // Se cliente já está em atendimento ou é cliente → NÃO rodar URA
+    // ══════════════════════════════════════════════════════════════
+    try {
+      const db = getSupabase();
+      const { data: existingLead } = await db
+        .from('leads')
+        .select('id, identity_id')
+        .eq('identity_id', identity_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingLead) {
+        const { data: painelAtual } = await db
+          .from('atendimentos')
+          .select('estado_painel, ciclo')
+          .eq('identity_id', existingLead.identity_id)
+          .maybeSingle();
+
+        if (painelAtual?.estado_painel === 'em_atendimento') {
+          // NÃO rodar URA — salvar mensagem e notificar operador
+          console.log('[GLOBAL GUARD] bloqueando URA', {
+            lead_id: existingLead.id,
+            estado_painel: painelAtual.estado_painel,
+            identity_id,
+          });
+
+          await db.from('mensagens').insert({
+            lead_id: existingLead.id,
+            de: channel_user_id,
+            tipo: 'mensagem',
+            conteudo: mensagem,
+            canal_origem: channel,
+          });
+
+          // Atualizar ultima_msg
+          await db.from('leads').update({
+            ultima_msg_de: 'cliente',
+            ultima_msg_em: new Date().toISOString(),
+          }).eq('id', existingLead.id);
+
+          io.emit('nova_mensagem_salva', {
+            lead_id: existingLead.id,
+            de: channel_user_id,
+            tipo: 'mensagem',
+            conteudo: mensagem,
+            created_at: new Date().toISOString(),
+            prioridade: 'alta',
+          });
+
+          // Alerta se não tem owner (mensagem pode se perder)
+          const { data: atOwner } = await db
+            .from('atendimentos')
+            .select('owner_id')
+            .eq('identity_id', existingLead.identity_id)
+            .maybeSingle();
+
+          if (!atOwner?.owner_id) {
+            io.emit('lead_sem_responsavel', { lead_id: existingLead.id, identity_id });
+            console.log('[GLOBAL GUARD] lead sem responsável!', { lead_id: existingLead.id });
+          }
+
+          if (isTelegram) return res.sendStatus(200);
+          return res.json({ message: 'Mensagem recebida. Atendimento em andamento.' });
+        }
+
+        // Reentrada de CLIENTE: cliente → em_atendimento (novo ciclo, permanece no backoffice)
+        if (painelAtual?.estado_painel === 'cliente') {
+          const novoCiclo = (painelAtual.ciclo || 1) + 1;
+
+          await db.from('atendimentos').update({
+            estado_painel: 'em_atendimento',
+            ciclo: novoCiclo,
+            status_negocio: null,
+            destino: null,
+            prazo_proxima_acao: null,
+            classificacao_tratamento_tipo: null,
+            classificacao_tratamento_detalhe: null,
+          }).eq('identity_id', identity_id);
+
+          // Save the incoming message
+          await db.from('mensagens').insert({
+            lead_id: existingLead.id,
+            de: channel_user_id,
+            tipo: 'mensagem',
+            conteudo: mensagem,
+            canal_origem: channel,
+          });
+
+          await db.from('leads').update({
+            ultima_msg_de: 'cliente',
+            ultima_msg_em: new Date().toISOString(),
+          }).eq('id', existingLead.id);
+
+          io.emit('nova_mensagem_salva', {
+            lead_id: existingLead.id,
+            de: channel_user_id,
+            tipo: 'mensagem',
+            conteudo: mensagem,
+            created_at: new Date().toISOString(),
+          });
+
+          io.emit('estado_painel_changed', { identity_id, lead_id: existingLead.id, estado_painel: 'em_atendimento' });
+          console.log('[GLOBAL GUARD] reentrada de cliente → em_atendimento (novo ciclo)', { identity_id, ciclo: novoCiclo });
+
+          if (isTelegram) return res.sendStatus(200);
+          return res.json({ message: 'Reentrada de cliente processada.' });
+        }
+
+        // Reentrada de ENCERRADO: encerrado → lead (volta para tela1)
+        if (painelAtual?.estado_painel === 'encerrado') {
+          const novoCiclo = (painelAtual.ciclo || 1) + 1;
+
+          await db.from('atendimentos').update({
+            estado_painel: 'lead',
+            ciclo: novoCiclo,
+            status_negocio: null,
+            destino: null,
+            prazo_proxima_acao: null,
+            classificacao_tratamento_tipo: null,
+            classificacao_tratamento_detalhe: null,
+            encerrado_em: null,
+            motivo_fechamento: null,
+          }).eq('identity_id', identity_id);
+
+          await db.from('leads').update({
+            is_reaquecido: true,
+            reaquecido_em: new Date().toISOString(),
+            ultima_msg_de: 'cliente',
+            ultima_msg_em: new Date().toISOString(),
+          }).eq('id', existingLead.id);
+
+          io.emit('lead_reaquecido', { lead_id: existingLead.id, status_anterior: 'encerrado' });
+          io.emit('estado_painel_changed', { identity_id, lead_id: existingLead.id, estado_painel: 'lead' });
+          console.log('[GLOBAL GUARD] reentrada de encerrado → lead', { identity_id, lead_id: existingLead.id, ciclo: novoCiclo });
+        }
+      }
+    } catch (guardErr) {
+      console.error('[GLOBAL GUARD] erro:', guardErr.message);
+      // Não bloqueia — continua pro bot
+    }
+
     const resultado = await processar(identity_id, mensagem, canal);
 
     // Incrementa contador de mensagens
@@ -594,7 +763,7 @@ app.post('/webhook', async (req, res) => {
 
         // ── Atualizar ultima_msg no lead ──
         await db.from('leads').update({
-          ultima_msg_de: channel_user_id,
+          ultima_msg_de: 'cliente',
           ultima_msg_em: new Date().toISOString(),
         }).eq('id', leadId);
 
@@ -656,6 +825,12 @@ app.post('/webhook', async (req, res) => {
           canal_origem: channel,
           persona_nome: personaNome,
         });
+
+        // Bot counts as operator side — update ultima_msg_de
+        await db.from('leads').update({
+          ultima_msg_de: 'operador',
+          ultima_msg_em: new Date().toISOString(),
+        }).eq('id', leadId);
 
         // Log de sistema: classificação do bot
         if (resultado.fluxo || resultado.score) {
@@ -765,7 +940,7 @@ const httpServer = http.createServer(app);
 
 const io = new Server(httpServer, {
   cors: {
-    origin: (process.env.WEB_URL || 'http://localhost:3001').split(',').map(u => u.trim()),
+    origin: (process.env.WEB_URL || 'http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003').split(',').map(u => u.trim()),
     methods: ['GET', 'POST'],
   },
 });
@@ -777,31 +952,115 @@ async function registrarTimelineEvent(db, lead_id, tipo, descricao, operador_id,
   } catch (e) { console.error('[timeline]', e.message); }
 }
 
+// ── Collaborative Assignment: Presence Manager ──────────────────────────────
+// Map<lead_id, Map<user_id, { user_id, user_name, socket_id, last_heartbeat }>>
+const viewingMap = new Map();
+
+// Heartbeat checker — runs every 5s, removes entries older than 15s
+const PRESENCE_HEARTBEAT_TIMEOUT = 15000;
+setInterval(() => {
+  const now = Date.now();
+  for (const [leadId, viewers] of viewingMap) {
+    let changed = false;
+    for (const [userId, info] of viewers) {
+      if (now - info.last_heartbeat > PRESENCE_HEARTBEAT_TIMEOUT) {
+        viewers.delete(userId);
+        changed = true;
+      }
+    }
+    if (changed) {
+      io.emit('viewing_update', {
+        lead_id: leadId,
+        viewers: Array.from(viewers.values()).map(v => ({ user_id: v.user_id, user_name: v.user_name })),
+      });
+    }
+    if (viewers.size === 0) viewingMap.delete(leadId);
+  }
+}, 5000);
+
 // ─── Socket.io handlers ────────────────────────────────────────────────────
 const typingThrottle = new Map();
 
 io.on('connection', (socket) => {
   console.log(`[socket] conectado: ${socket.id}`);
 
-  // Assumir lead — atômico via UNIQUE(lead_id)
+  // ── Collaborative Assignment: Assumir Lead (upsert + audit) ─────────────
   socket.on('assumir_lead', async ({ lead_id, operador_id }) => {
-    const db = getSupabase();
-    const { error } = await db
-      .from('atendimentos')
-      .insert({ lead_id, owner_id: operador_id, status: 'aberto' });
+    try {
+      const db = getSupabase();
+      
+      // Resolve identity_id from lead
+      const { data: leadData } = await db
+        .from('leads')
+        .select('identity_id')
+        .eq('id', lead_id)
+        .maybeSingle();
+      
+      const identityId = leadData?.identity_id || null;
+      
+      // Fetch current owner for audit log
+      const { data: current } = await db
+        .from('atendimentos')
+        .select('owner_id')
+        .eq('identity_id', identityId)
+        .maybeSingle();
+      
+      const previousOwner = current?.owner_id || null;
+      const action = previousOwner ? 'reassign' : 'assign';
+      
+      // Upsert — never fails on UNIQUE constraint
+      const { error } = await db
+        .from('atendimentos')
+        .upsert({
+          identity_id: identityId,
+          lead_id,
+          owner_id: operador_id,
+          delegado_de: previousOwner,
+          status: 'aberto',
+          assumido_em: new Date().toISOString(),
+        }, { onConflict: 'identity_id' });
 
-    if (error) {
-      if (error.code === '23505') {
-        socket.emit('erro_assumir', { mensagem: 'Este lead já foi assumido por outro operador.' });
+      if (error) {
+        socket.emit('erro_assumir', { mensagem: error.message });
         return;
       }
-      socket.emit('erro_assumir', { mensagem: error.message });
-      return;
+
+      // Mark lead as assumed
+      await db.from('leads').update({ is_assumido: true }).eq('id', lead_id);
+
+      // Audit log
+      await db.from('assignment_logs').insert({
+        lead_id,
+        from_user_id: previousOwner,
+        to_user_id: operador_id,
+        action,
+      });
+
+      // Broadcast
+      io.emit('lead_assumido', { lead_id, operador_id });
+      io.emit('assignment_updated', {
+        lead_id,
+        owner_id: operador_id,
+        owner_name: 'Operador', // simplified — name resolution can be added later
+        action,
+      });
+
+      console.log(JSON.stringify({
+        level: 'info',
+        msg: 'lead_assumido',
+        lead_id,
+        operador_id,
+        action,
+        previous_owner: previousOwner,
+        ts: new Date().toISOString(),
+      }));
+    } catch (err) {
+      console.error('[assumir_lead] error:', err.message);
+      socket.emit('erro_assumir', { mensagem: 'Erro ao assumir lead' });
     }
-    io.emit('lead_assumido', { lead_id, operador_id });
   });
 
-  // Delegar lead
+  // Delegar lead (legacy handler kept for backward compat)
   socket.on('delegar_lead', async ({ lead_id, operador_id_origem, operador_id_destino }) => {
     const db = getSupabase();
     await db
@@ -809,6 +1068,43 @@ io.on('connection', (socket) => {
       .update({ owner_id: operador_id_destino, delegado_de: operador_id_origem })
       .eq('lead_id', lead_id);
     io.emit('lead_delegado', { lead_id, operador_id_destino });
+  });
+
+  // ── Collaborative Assignment: Delegate ──────────────────────────────────
+  socket.on('delegate_lead', async ({ lead_id, from_user_id, to_user_id }) => {
+    try {
+      const db = getSupabase();
+
+      await db
+        .from('atendimentos')
+        .update({ owner_id: to_user_id, delegado_de: from_user_id })
+        .eq('lead_id', lead_id);
+
+      await db.from('assignment_logs').insert({
+        lead_id,
+        from_user_id,
+        to_user_id,
+        action: 'delegate',
+      });
+
+      io.emit('assignment_updated', {
+        lead_id,
+        owner_id: to_user_id,
+        owner_name: 'Operador',
+        action: 'delegate',
+      });
+
+      console.log(JSON.stringify({
+        level: 'info',
+        msg: 'lead_delegado',
+        lead_id,
+        from_user_id,
+        to_user_id,
+        ts: new Date().toISOString(),
+      }));
+    } catch (err) {
+      console.error('[delegate_lead] error:', err.message);
+    }
   });
 
   // Nova mensagem (do operador humano)
@@ -848,7 +1144,7 @@ io.on('connection', (socket) => {
         await db.from('leads').update({
           is_assumido: true,
           status_triagem: 'humano_assumiu',
-          ultima_msg_de: de,
+          ultima_msg_de: 'operador',
           ultima_msg_em: new Date().toISOString(),
           last_operator_message_at: new Date().toISOString(),
         }).eq('id', lead_id);
@@ -1001,7 +1297,73 @@ io.on('connection', (socket) => {
     await registrarTimelineEvent(db, lead_id, 'status_atualizado', `Pipeline: ${lead.status_pipeline} → ${target_stage}`, null, { from: lead.status_pipeline, to: target_stage, conditions });
   });
 
+  // ── Smart Conversation Sorting relay handlers ──────────────────────────
+  socket.on('conversa_classificada', (data) => {
+    console.log('[SOCKET] conversa_classificada', { lead_id: data.lead_id, status_negocio: data.status_negocio, destino: data.destino });
+    io.emit('conversa_classificada', data);
+  });
+
+  socket.on('status_negocio_changed', (data) => {
+    console.log('[SOCKET] status_negocio_changed', { lead_id: data.lead_id, status_anterior: data.status_anterior, status_novo: data.status_novo });
+    io.emit('status_negocio_changed', data);
+  });
+
+  socket.on('conversa_resgatada', (data) => {
+    console.log('[SOCKET] conversa_resgatada', { lead_id: data.lead_id, tipo_resgate: data.tipo_resgate });
+    io.emit('conversa_resgatada', data);
+  });
+
+  // ── Estado Painel Changed: broadcast para todas as abas/operadores ──
+  socket.on('estado_painel_changed', (data) => {
+    console.log('[SOCKET] estado_painel_changed', { identity_id: data.identity_id, lead_id: data.lead_id, estado_painel: data.estado_painel });
+    io.emit('estado_painel_changed', data);
+  });
+
+  // ── Collaborative Assignment: Presence ──────────────────────────────────
+  socket.on('user_viewing', ({ lead_id, user_id, user_name }) => {
+    if (!viewingMap.has(lead_id)) viewingMap.set(lead_id, new Map());
+    viewingMap.get(lead_id).set(user_id, {
+      user_id, user_name, socket_id: socket.id,
+      last_heartbeat: Date.now(),
+    });
+    io.emit('viewing_update', {
+      lead_id,
+      viewers: Array.from(viewingMap.get(lead_id).values())
+        .map(v => ({ user_id: v.user_id, user_name: v.user_name })),
+    });
+  });
+
+  socket.on('user_left', ({ lead_id, user_id }) => {
+    const viewers = viewingMap.get(lead_id);
+    if (viewers) {
+      viewers.delete(user_id);
+      if (viewers.size === 0) {
+        viewingMap.delete(lead_id);
+      }
+      io.emit('viewing_update', {
+        lead_id,
+        viewers: viewers.size > 0
+          ? Array.from(viewers.values()).map(v => ({ user_id: v.user_id, user_name: v.user_name }))
+          : [],
+      });
+    }
+  });
+
   socket.on('disconnect', () => {
+    // Presence cleanup
+    for (const [leadId, viewers] of viewingMap) {
+      for (const [userId, info] of viewers) {
+        if (info.socket_id === socket.id) {
+          viewers.delete(userId);
+          io.emit('viewing_update', {
+            lead_id: leadId,
+            viewers: Array.from(viewers.values())
+              .map(v => ({ user_id: v.user_id, user_name: v.user_name })),
+          });
+        }
+      }
+      if (viewers.size === 0) viewingMap.delete(leadId);
+    }
     console.log(`[socket] desconectado: ${socket.id}`);
   });
 });
@@ -1017,7 +1379,7 @@ async function sweepOperacao() {
   // Read SLA config from database
   let snoozeMinutos = 60;
   let abandonoTriagemHoras = 2;
-  let abandonoAtendimentoHoras = 24;
+  let abandonoAtendimentoDias = 7;
   let autoReleaseMinutos = 5;
 
   try {
@@ -1026,7 +1388,7 @@ async function sweepOperacao() {
       for (const cfg of slaConfigs) {
         if (cfg.chave === 'tempo_snooze_minutos') snoozeMinutos = parseInt(cfg.valor) || 60;
         if (cfg.chave === 'tempo_abandono_triagem_horas') abandonoTriagemHoras = parseInt(cfg.valor) || 2;
-        if (cfg.chave === 'tempo_abandono_atendimento_horas') abandonoAtendimentoHoras = parseInt(cfg.valor) || 24;
+        if (cfg.chave === 'tempo_abandono_atendimento_dias') abandonoAtendimentoDias = parseInt(cfg.valor) || 7;
         if (cfg.chave === 'tempo_auto_release_minutos') autoReleaseMinutos = parseInt(cfg.valor) || 5;
       }
     }
@@ -1034,7 +1396,7 @@ async function sweepOperacao() {
 
   const SNOOZE_THRESHOLD = snoozeMinutos * 60 * 1000;
   const ABANDONO_TRIAGEM = abandonoTriagemHoras * 60 * 60 * 1000;
-  const ABANDONO_ATENDIMENTO = abandonoAtendimentoHoras * 60 * 60 * 1000;
+  const ABANDONO_ATENDIMENTO = abandonoAtendimentoDias * 24 * 60 * 60 * 1000;
   const AUTO_RELEASE_THRESHOLD = autoReleaseMinutos * 60 * 1000;
 
   try {
@@ -1087,43 +1449,125 @@ async function sweepOperacao() {
       }
     }
 
-    // 2. Abandono de Triagem: leads novos parados 2h sem atendimento humano
+    // 2. Abandono URA: leads em triagem sem interação do operador > 2h
     const limiteTriagem = new Date(agora.getTime() - ABANDONO_TRIAGEM).toISOString();
     const { data: leadsTriagem } = await db
       .from('leads')
-      .select('id')
-      .eq('status_operacao', 'novo')
-      .lt('created_at', limiteTriagem);
+      .select('id, identity_id, ultima_msg_de')
+      .or('ultima_msg_de.is.null,ultima_msg_de.eq.cliente')
+      .lt('created_at', limiteTriagem)
+      .not('identity_id', 'is', null);
 
     if (leadsTriagem) {
       for (const lead of leadsTriagem) {
-        await db.from('leads').update({ status_operacao: 'fechado' }).eq('id', lead.id);
-        await db.from('atendimentos').update({
-          status: 'fechado',
-          motivo_fechamento: 'abandono_triagem',
-          encerrado_em: agora.toISOString(),
-        }).eq('lead_id', lead.id);
-        io.emit('lead_status_changed', { lead_id: lead.id, status: 'fechado' });
+        // Check atendimento estado_painel — only close if in lead/null state
+        const { data: at } = await db.from('atendimentos')
+          .select('estado_painel')
+          .eq('identity_id', lead.identity_id)
+          .maybeSingle();
+
+        if (!at || at.estado_painel === null || at.estado_painel === 'lead') {
+          await db.from('leads').update({ status_operacao: 'fechado' }).eq('id', lead.id);
+          await db.from('atendimentos').update({
+            estado_painel: 'encerrado',
+            motivo_fechamento: 'abandono_ura',
+            encerrado_em: agora.toISOString(),
+          }).eq('identity_id', lead.identity_id);
+          io.emit('lead_status_changed', { lead_id: lead.id, status: 'fechado' });
+          io.emit('estado_painel_changed', { identity_id: lead.identity_id, lead_id: lead.id, estado_painel: 'encerrado' });
+        }
       }
     }
 
-    // 3. Abandono de Atendimento: leads com humano sem resposta 24h
+    // 3. Abandono Atendimento: em_atendimento, última msg do operador, cliente silencioso > 7 dias
     const limiteAtendimento = new Date(agora.getTime() - ABANDONO_ATENDIMENTO).toISOString();
     const { data: leadsAbandono } = await db
       .from('leads')
-      .select('id, ultima_msg_em')
-      .in('status_operacao', ['ativo', 'em_pausa'])
-      .lt('ultima_msg_em', limiteAtendimento);
+      .select('id, identity_id')
+      .eq('ultima_msg_de', 'operador')
+      .lt('ultima_msg_em', limiteAtendimento)
+      .not('identity_id', 'is', null);
 
     if (leadsAbandono) {
       for (const lead of leadsAbandono) {
-        await db.from('leads').update({ status_operacao: 'fechado' }).eq('id', lead.id);
-        await db.from('atendimentos').update({
+        const { data: at } = await db.from('atendimentos')
+          .select('estado_painel')
+          .eq('identity_id', lead.identity_id)
+          .maybeSingle();
+
+        if (at?.estado_painel === 'em_atendimento') {
+          await db.from('leads').update({ status_operacao: 'fechado' }).eq('id', lead.id);
+          await db.from('atendimentos').update({
+            estado_painel: 'encerrado',
+            motivo_fechamento: 'abandono_operador',
+            encerrado_em: agora.toISOString(),
+          }).eq('identity_id', lead.identity_id);
+          io.emit('lead_status_changed', { lead_id: lead.id, status: 'fechado' });
+          io.emit('estado_painel_changed', { identity_id: lead.identity_id, lead_id: lead.id, estado_painel: 'encerrado' });
+        }
+      }
+    }
+
+    // 4. Auto-close financeiro: dia >= 10 → fecha mês anterior
+    const diaAtual = agora.getDate();
+    if (diaAtual >= 10) {
+      const mesAnterior = new Date(agora.getFullYear(), agora.getMonth() - 1, 1);
+      const mesKey = `${mesAnterior.getFullYear()}-${String(mesAnterior.getMonth() + 1).padStart(2, '0')}`;
+      
+      // Check if already closed
+      const { data: fechamento } = await db
+        .from('fechamentos_mensais')
+        .select('status')
+        .eq('mes', mesKey)
+        .maybeSingle();
+      
+      if (!fechamento || fechamento.status === 'aberto') {
+        // Calculate snapshot from atendimentos
+        const inicioMes = `${mesKey}-01T00:00:00.000Z`;
+        const fimMes = new Date(mesAnterior.getFullYear(), mesAnterior.getMonth() + 1, 0, 23, 59, 59).toISOString();
+        
+        // Entrada recebida (pagos no mês)
+        const { data: pagos } = await db
+          .from('atendimentos')
+          .select('valor_entrada')
+          .eq('status_pagamento', 'pago')
+          .gte('encerrado_em', inicioMes)
+          .lte('encerrado_em', fimMes);
+        
+        const receitaEntrada = (pagos || []).reduce((sum, a) => sum + (parseFloat(a.valor_entrada) || 0), 0);
+        
+        // Entrada pendente
+        const { data: pendentes } = await db
+          .from('atendimentos')
+          .select('valor_entrada')
+          .eq('status_pagamento', 'pendente')
+          .gte('encerrado_em', inicioMes)
+          .lte('encerrado_em', fimMes);
+        
+        const receitaPendente = (pendentes || []).reduce((sum, a) => sum + (parseFloat(a.valor_entrada) || 0), 0);
+        
+        // Custos do mês
+        const { data: custos } = await db
+          .from('custos_mensais')
+          .select('valor')
+          .eq('mes', mesKey);
+        
+        const custosTotal = (custos || []).reduce((sum, c) => sum + (parseFloat(c.valor) || 0), 0);
+        
+        const resultado = receitaEntrada - custosTotal;
+        
+        // Upsert snapshot
+        await db.from('fechamentos_mensais').upsert({
+          mes: mesKey,
           status: 'fechado',
-          motivo_fechamento: 'abandono_atendimento',
-          encerrado_em: agora.toISOString(),
-        }).eq('lead_id', lead.id);
-        io.emit('lead_status_changed', { lead_id: lead.id, status: 'fechado' });
+          receita_entrada: receitaEntrada,
+          receita_pendente: receitaPendente,
+          custos_total: custosTotal,
+          resultado,
+          fechado_em: agora.toISOString(),
+        }, { onConflict: 'mes' });
+        
+        console.log(`[sweep] fechamento mensal: ${mesKey} → receita=${receitaEntrada}, custos=${custosTotal}, resultado=${resultado}`);
       }
     }
   } catch (err) {

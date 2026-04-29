@@ -8,6 +8,11 @@ export interface SegmentNode {
   persona: string | null
   ativo: boolean
   created_at: string
+  status_negocio?: string | null
+  destino?: string | null
+  fila?: string | null
+  acao?: string | null
+  motivo_explicacao?: string | null
 }
 
 export interface CascadeSelection {

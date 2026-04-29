@@ -234,14 +234,14 @@ async function persistirFluxo(sessao) {
           prioridade: s.prioridade || 'FRIO',
           flagAtencao: s.flagAtencao,
           canalPreferido: s.canalPreferido,
-          resumo: JSON.stringify({
-            status: s.trabalhoStatus,
-            tipo: s.trabalhoTipo || s.familiaTipo,
-            tempo: s.trabalhoTempo,
-            salario: s.trabalhoSalario,
-            contrato: s.trabalhoContrato,
-            intencao: s.trabalhoIntencao || s.familiaIntencao,
-          }),
+          resumo: (() => {
+            const parts = [];
+            if (s.fluxo) parts.push(s.fluxo === 'advogado' ? 'Trabalhista' : s.fluxo.charAt(0).toUpperCase() + s.fluxo.slice(1));
+            if (s.trabalhoStatus) parts.push(s.trabalhoStatus);
+            if (s.trabalhoTipo || s.familiaTipo) parts.push(s.trabalhoTipo || s.familiaTipo);
+            if (s.advogadoDescricao) parts.push(s.advogadoDescricao);
+            return parts.join(' — ') || 'Sem resumo';
+          })(),
         }).eq('id', existingLeadId);
         return;
       } catch (_) {}
@@ -262,14 +262,14 @@ async function persistirFluxo(sessao) {
       flagAtencao: s.flagAtencao,
       canalOrigem: s.canalOrigem,
       canalPreferido: s.canalPreferido,
-      resumo: JSON.stringify({
-        status: s.trabalhoStatus,
-        tipo: s.trabalhoTipo || s.familiaTipo,
-        tempo: s.trabalhoTempo,
-        salario: s.trabalhoSalario,
-        contrato: s.trabalhoContrato,
-        intencao: s.trabalhoIntencao || s.familiaIntencao,
-      }),
+      resumo: (() => {
+        const parts = [];
+        if (s.fluxo) parts.push(s.fluxo === 'advogado' ? 'Trabalhista' : s.fluxo.charAt(0).toUpperCase() + s.fluxo.slice(1));
+        if (s.trabalhoStatus) parts.push(s.trabalhoStatus);
+        if (s.trabalhoTipo || s.familiaTipo) parts.push(s.trabalhoTipo || s.familiaTipo);
+        if (s.advogadoDescricao) parts.push(s.advogadoDescricao);
+        return parts.join(' — ') || 'Sem resumo';
+      })(),
       status: 'NOVO',
     });
   } catch (err) {

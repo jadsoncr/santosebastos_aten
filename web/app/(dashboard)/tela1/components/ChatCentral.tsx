@@ -3,7 +3,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useSocket } from '@/components/providers/SocketProvider'
-import ProgressBar from './ProgressBar'
 import QuickReplies from './QuickReplies'
 import SmartSnippets from './SmartSnippets'
 import PopupEnfileirar from './PopupEnfileirar'
@@ -27,12 +26,17 @@ interface Mensagem {
   arquivo_tamanho?: number | null
 }
 
+interface MensagemLocal extends Mensagem {
+  _status?: 'sending' | 'sent' | 'failed'
+  _tempId?: string
+}
+
 interface Props {
   lead: Lead | null
 }
 
 export default function ChatCentral({ lead }: Props) {
-  const [mensagens, setMensagens] = useState<Mensagem[]>([])
+  const [mensagens, setMensagens] = useState<MensagemLocal[]>([])
   const [input, setInput] = useState('')
   const [isNotaInterna, setIsNotaInterna] = useState(false)
   const [showQuickReplies, setShowQuickReplies] = useState(false)
@@ -44,6 +48,11 @@ export default function ChatCentral({ lead }: Props) {
   const [channelMap, setChannelMap] = useState<Record<string, string>>({})
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  // Presence state (Task 5.1)
+  const [viewers, setViewers] = useState<{user_id: string; user_name: string}[]>([])
+  const presenceIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  // Collision warning state (Task 5.3)
+  const [currentOwner, setCurrentOwner] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -56,6 +65,13 @@ export default function ChatCentral({ lead }: Props) {
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) setOperadorId(data.user.id)
     })
+  }, [])
+
+  // Request notification permission
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
   }, [])
 
   // Load messages when lead changes
@@ -137,9 +153,23 @@ export default function ChatCentral({ lead }: Props) {
     const handleNovaMensagem = (msg: Mensagem) => {
       if (msg.lead_id === lead.id) {
         setMensagens(prev => {
+          // Check if this confirms an optimistic message we sent
+          const optimistic = prev.find(m => m._tempId && m._status === 'sending' && m.conteudo === msg.conteudo && m.de === msg.de)
+          if (optimistic) {
+            return prev.map(m => m._tempId === optimistic._tempId ? { ...msg, _status: 'sent' as const } : m)
+          }
+          // Dedup by id
           if (prev.some(m => m.id === msg.id)) return prev
           return [...prev, msg]
         })
+
+        // Browser notification when tab is not focused
+        if (document.hidden && Notification.permission === 'granted') {
+          new Notification('Nova mensagem', {
+            body: msg.conteudo?.slice(0, 100) || 'Mensagem recebida',
+            icon: '/favicon.ico',
+          })
+        }
       }
     }
 
@@ -163,6 +193,63 @@ export default function ChatCentral({ lead }: Props) {
       socket.off('pipeline_error', handlePipelineError)
     }
   }, [socket, lead?.id])
+
+  // Reconnect: refetch messages when socket reconnects
+  useEffect(() => {
+    if (!socket) return
+    const handleReconnect = () => { loadMessages() }
+    socket.on('connect', handleReconnect)
+    return () => { socket.off('connect', handleReconnect) }
+  }, [socket, loadMessages])
+
+  // Presence: emit user_viewing on mount/lead change, heartbeat every 10s (Task 5.1)
+  useEffect(() => {
+    if (!socket || !lead || !operadorId) return
+
+    const emitViewing = () => {
+      socket.emit('user_viewing', {
+        lead_id: lead.id,
+        user_id: operadorId,
+        user_name: 'Operador',
+      })
+    }
+
+    emitViewing()
+    presenceIntervalRef.current = setInterval(emitViewing, 10000)
+
+    return () => {
+      if (presenceIntervalRef.current) clearInterval(presenceIntervalRef.current)
+      socket.emit('user_left', { lead_id: lead.id, user_id: operadorId })
+    }
+  }, [socket, lead?.id, operadorId])
+
+  // Presence indicator: listen for viewing_update (Task 5.2)
+  useEffect(() => {
+    if (!socket || !lead) return
+    const handleViewingUpdate = (data: { lead_id: string; viewers: {user_id: string; user_name: string}[] }) => {
+      if (data.lead_id === lead.id) {
+        setViewers(data.viewers.filter(v => v.user_id !== operadorId))
+      }
+    }
+    socket.on('viewing_update', handleViewingUpdate)
+    return () => { socket.off('viewing_update', handleViewingUpdate) }
+  }, [socket, lead?.id, operadorId])
+
+  // Collision warning: listen for assignment_updated (Task 5.3 / 5.4)
+  useEffect(() => {
+    if (!socket || !lead) return
+    const handleAssignment = (data: { lead_id: string; owner_name: string }) => {
+      if (data.lead_id === lead.id) setCurrentOwner(data.owner_name)
+    }
+    socket.on('assignment_updated', handleAssignment)
+    return () => { socket.off('assignment_updated', handleAssignment) }
+  }, [socket, lead?.id])
+
+  // Reset presence state on lead change (Task 5.4)
+  useEffect(() => {
+    setViewers([])
+    setCurrentOwner(null)
+  }, [lead?.id])
 
   // Handle input change with '/' detection
   const handleInputChange = (value: string) => {
@@ -191,11 +278,38 @@ export default function ChatCentral({ lead }: Props) {
   const handleSend = () => {
     if (!input.trim() || !lead || !socket || !operadorId) return
 
+    const tempId = crypto.randomUUID()
+    const conteudo = input.trim()
+    const tipo = isNotaInterna ? 'nota_interna' : 'mensagem'
+
+    // Optimistic: add message to local state immediately
+    const optimisticMsg: MensagemLocal = {
+      id: tempId,
+      _tempId: tempId,
+      _status: 'sending',
+      lead_id: lead.id,
+      de: operadorId,
+      tipo,
+      conteudo,
+      operador_id: operadorId,
+      created_at: new Date().toISOString(),
+    }
+    setMensagens(prev => [...prev, optimisticMsg])
+
+    // Timeout: mark as failed if no confirmation in 5s
+    setTimeout(() => {
+      setMensagens(prev => prev.map(m =>
+        m._tempId === tempId && m._status === 'sending'
+          ? { ...m, _status: 'failed' }
+          : m
+      ))
+    }, 5000)
+
     socket.emit('nova_mensagem', {
       lead_id: lead.id,
       de: operadorId,
-      conteudo: input.trim(),
-      tipo: isNotaInterna ? 'nota_interna' : 'mensagem',
+      conteudo,
+      tipo,
       operador_id: operadorId,
       origem: 'humano',
     })
@@ -207,6 +321,35 @@ export default function ChatCentral({ lead }: Props) {
 
     setInput('')
     setShowQuickReplies(false)
+  }
+
+  // Retry failed message
+  const handleRetrySend = (msg: MensagemLocal) => {
+    if (!lead || !socket || !operadorId || !msg._tempId) return
+
+    // Reset status to sending
+    setMensagens(prev => prev.map(m =>
+      m._tempId === msg._tempId ? { ...m, _status: 'sending' as const } : m
+    ))
+
+    // Set new timeout
+    const tempId = msg._tempId
+    setTimeout(() => {
+      setMensagens(prev => prev.map(m =>
+        m._tempId === tempId && m._status === 'sending'
+          ? { ...m, _status: 'failed' as const }
+          : m
+      ))
+    }, 5000)
+
+    socket.emit('nova_mensagem', {
+      lead_id: lead.id,
+      de: operadorId,
+      conteudo: msg.conteudo,
+      tipo: msg.tipo,
+      operador_id: operadorId,
+      origem: 'humano',
+    })
   }
 
   // Key handler
@@ -306,8 +449,12 @@ export default function ChatCentral({ lead }: Props) {
 
   if (!lead) {
     return (
-      <div className="flex items-center justify-center h-full text-text-muted text-sm">
-        {COPY.chat.selecioneConversa}
+      <div className="flex flex-col items-center justify-center h-full text-center px-6">
+        <svg className="w-10 h-10 text-text-muted/40 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
+        </svg>
+        <p className="text-sm text-text-muted">{COPY.chat.selecioneConversa}</p>
+        <p className="text-[11px] text-text-muted mt-1">Escolha um prospecto na barra lateral para iniciar</p>
       </div>
     )
   }
@@ -315,30 +462,34 @@ export default function ChatCentral({ lead }: Props) {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-border bg-bg-surface flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-text-primary">
-            {lead.nome || displayPhone(lead.telefone) || 'Lead'}
-          </span>
-          {isAssumido ? (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-accent/10 text-accent">
-              {COPY.chat.atendimentoHumano}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-warning/10 text-warning">
-              {COPY.chat.automacaoAtiva}
-            </span>
-          )}
+      <div className="p-4 border-b border-[#E6E8EC]/20 flex items-center justify-between bg-white z-10 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold border border-gray-100 overflow-hidden shadow-sm bg-gray-100 text-gray-400">
+            {(lead.nome || displayPhone(lead.telefone) || 'L')?.charAt(0)?.toUpperCase()}
+          </div>
+          <div>
+            <h3 className="font-bold text-gray-900 text-sm tracking-tight">
+              {lead.nome || displayPhone(lead.telefone) || 'Lead'}
+            </h3>
+            <p className="text-[10px] text-gray-400 flex items-center font-bold uppercase tracking-widest gap-1">
+              <span className="w-1.5 h-1.5 rounded-full animate-pulse bg-blue-500" />
+              Online
+            </p>
+            {viewers.length > 0 && (
+              <div className="flex items-center gap-1 ml-2">
+                {viewers.map(v => (
+                  <span key={v.user_id} className="text-[9px] text-orange-500 font-bold">
+                    {v.user_name} está visualizando
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Pipeline Progress */}
-      <div className="px-4 py-1.5 border-b border-border bg-bg-primary">
-        <ProgressBar currentStage={(lead as any).status_pipeline} />
-      </div>
-
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#F6F8FC]">
         {mensagens.map(msg => {
           // System log (bot analysis)
           if (msg.tipo === 'sistema') {
@@ -375,10 +526,10 @@ export default function ChatCentral({ lead }: Props) {
             return (
               <div key={msg.id} className={`flex ${sent ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[70%] px-3 py-2 text-sm text-text-primary ${
+                  className={`max-w-[70%] px-3 py-2 text-sm shadow-[0_2px_8px_rgba(0,0,0,0.04)] ${
                     sent
-                      ? 'bg-chat-sent rounded-[12px_0_12px_12px]'
-                      : 'bg-chat-received rounded-[0_12px_12px_12px]'
+                      ? 'bg-[#2563EB] text-white rounded-2xl rounded-tr-none'
+                      : 'bg-white text-gray-900 rounded-2xl rounded-tl-none border border-white'
                   }`}
                 >
                   {isImage && msg.arquivo_url ? (
@@ -431,7 +582,7 @@ export default function ChatCentral({ lead }: Props) {
                       )}
                     </div>
                   )}
-                  <span className="font-mono text-xs text-text-muted block mt-1">
+                  <span className="block mt-1 text-[9px] font-bold uppercase tracking-tighter opacity-60">
                     {formatTime(msg.created_at)}
                     {!sent && channelMap[msg.de] ? (
                       <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded ${
@@ -455,10 +606,10 @@ export default function ChatCentral({ lead }: Props) {
             return (
               <div key={msg.id} className={`flex ${sent ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[70%] px-3 py-2 text-sm text-text-primary ${
+                  className={`max-w-[70%] px-3 py-2 text-sm shadow-[0_2px_8px_rgba(0,0,0,0.04)] ${
                     sent
-                      ? 'bg-chat-sent rounded-[12px_0_12px_12px]'
-                      : 'bg-chat-received rounded-[0_12px_12px_12px]'
+                      ? 'bg-[#2563EB] text-white rounded-2xl rounded-tr-none'
+                      : 'bg-white text-gray-900 rounded-2xl rounded-tl-none border border-white'
                   }`}
                 >
                   <div className="flex flex-col gap-1.5">
@@ -469,7 +620,7 @@ export default function ChatCentral({ lead }: Props) {
                       {msg.arquivo_nome || 'Áudio'}
                     </span>
                   </div>
-                  <span className="font-mono text-xs text-text-muted block mt-1">
+                  <span className="block mt-1 text-[9px] font-bold uppercase tracking-tighter opacity-60">
                     {formatTime(msg.created_at)}
                     {!sent && channelMap[msg.de] ? (
                       <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded ${
@@ -491,15 +642,20 @@ export default function ChatCentral({ lead }: Props) {
           return (
             <div key={msg.id} className={`flex ${sent ? 'justify-end' : 'justify-start'}`}>
               <div
-                className={`max-w-[70%] px-3 py-2 text-sm text-text-primary ${
+                className={`max-w-[70%] px-3 py-2 text-sm shadow-[0_2px_8px_rgba(0,0,0,0.04)] ${
                   sent
-                    ? 'bg-chat-sent rounded-[12px_0_12px_12px]'
-                    : 'bg-chat-received rounded-[0_12px_12px_12px]'
+                    ? 'bg-[#2563EB] text-white rounded-2xl rounded-tr-none'
+                    : 'bg-white text-gray-900 rounded-2xl rounded-tl-none border border-white'
                 }`}
               >
                 <p>{msg.conteudo}</p>
-                <span className="font-mono text-xs text-text-muted block mt-1">
+                <span className="block mt-1 text-[9px] font-bold uppercase tracking-tighter opacity-60">
                   {formatTime(msg.created_at)}
+                  {sent && msg._status === 'sending' && <span className="ml-1 text-gray-300">⏳</span>}
+                  {sent && msg._status === 'sent' && <span className="ml-1 text-green-300">✓</span>}
+                  {sent && msg._status === 'failed' && (
+                    <span className="ml-1 text-red-300 cursor-pointer" onClick={() => handleRetrySend(msg)} title="Reenviar">⚠</span>
+                  )}
                   {!sent && msg.tipo !== 'sistema' && msg.tipo !== 'nota_interna' && channelMap[msg.de] ? (
                     <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded ${
                       channelMap[msg.de] === 'telegram'
@@ -520,7 +676,7 @@ export default function ChatCentral({ lead }: Props) {
       </div>
 
       {/* Input area — estilo WhatsApp */}
-      <div className="px-3 py-2 border-t border-border bg-bg-surface relative">
+      <div className="border-t border-[#E6E8EC]/10 bg-white p-6 relative">
         {showQuickReplies && operadorId && (
           <QuickReplies
             query={quickReplyQuery}
@@ -561,14 +717,14 @@ export default function ChatCentral({ lead }: Props) {
         />
 
         {/* Barra de input com botões */}
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-3 bg-[#F8FAFC] p-3 rounded-2xl border border-gray-100/50 shadow-inner">
           {/* Botão anexo */}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
             title="Anexar arquivo"
-            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-text-muted hover:text-text-secondary hover:bg-bg-surface-hover transition-colors disabled:opacity-50"
+            className="flex-shrink-0 p-2 text-gray-400 hover:text-blue-600 transition-colors disabled:opacity-50"
           >
             {isUploading ? (
               <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -598,10 +754,10 @@ export default function ChatCentral({ lead }: Props) {
               onKeyDown={handleKeyDown}
               placeholder={isNotaInterna ? 'Escreva uma nota interna...' : 'Digite uma mensagem ou / para atalhos'}
               rows={1}
-              className={`w-full rounded-2xl border px-4 py-2 pr-10 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 resize-none max-h-32 ${
+              className={`w-full text-[13px] font-medium bg-transparent border-none focus:ring-0 resize-none max-h-32 py-1.5 placeholder:text-gray-400 ${
                 isNotaInterna
-                  ? 'bg-note-internal border-warning/30 focus:border-warning focus:ring-warning'
-                  : 'bg-bg-primary border-border focus:border-accent focus:ring-accent'
+                  ? 'text-warning'
+                  : 'text-gray-900'
               }`}
               style={{ minHeight: '36px' }}
               onInput={(e) => {
@@ -618,7 +774,7 @@ export default function ChatCentral({ lead }: Props) {
               type="button"
               onClick={handleSend}
               title="Enviar mensagem"
-              className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-accent text-white hover:bg-accent/90 transition-colors"
+              className="flex-shrink-0 p-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all active:scale-95 shadow-md shadow-blue-100"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
@@ -628,7 +784,7 @@ export default function ChatCentral({ lead }: Props) {
             <button
               type="button"
               title="Gravar áudio (em breve)"
-              className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-text-muted hover:text-text-secondary hover:bg-bg-surface-hover transition-colors"
+              className="flex-shrink-0 p-2 text-gray-400 hover:text-gray-600 transition-colors"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
