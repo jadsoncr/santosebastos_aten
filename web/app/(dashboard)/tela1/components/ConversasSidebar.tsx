@@ -299,17 +299,23 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
     }
   }, [criticalCount, filterCriticalOnly])
 
-  // ── Counters ──
+  // ── Counters (includes temperature distribution) ──
   const counters = useMemo(() => {
-    let waiting = 0, noResponse = 0
+    let waiting = 0, noResponse = 0, hot = 0, warm = 0, cold = 0
     for (const l of leads) {
+      // Temperature by score
+      if (l.score >= 7) hot++
+      else if (l.score >= 4) warm++
+      else cold++
+
+      // Existing filters
       if (l.ultima_msg_de === 'operador') {
         const diffMs = Date.now() - new Date(l.ultima_msg_em || l.created_at).getTime()
         if (diffMs < 2 * 60 * 60 * 1000) waiting++
         else if (diffMs < 7 * 24 * 60 * 60 * 1000) noResponse++
       }
     }
-    return { total: leads.length, waiting, noResponse }
+    return { total: leads.length, waiting, noResponse, hot, warm, cold }
   }, [leads])
 
   // ── Search logic with 300ms debounce ──
@@ -562,6 +568,27 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
             Sem retorno {counters.noResponse}
           </button>
         </div>
+
+        {/* Temperature distribution — contextual, not a filter */}
+        {counters.total > 0 && (
+          <div className="flex items-center gap-2 mb-3">
+            {counters.hot > 0 && (
+              <span className="text-[9px] font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">
+                🔥 {counters.hot}
+              </span>
+            )}
+            {counters.warm > 0 && (
+              <span className="text-[9px] font-bold text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded-full">
+                ⚠️ {counters.warm}
+              </span>
+            )}
+            {counters.cold > 0 && (
+              <span className="text-[9px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                ❄️ {counters.cold}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Search bar */}
         <div className="relative flex items-center gap-2">
