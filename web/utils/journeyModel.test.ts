@@ -4,6 +4,7 @@ import {
   JOURNEY_STAGES,
   SLA_POR_ETAPA,
   ETAPAS_ATIVAS,
+  LEGACY_STATUS_MAP,
   getSlaDias,
   calcularPrazoEtapa,
   getStage,
@@ -13,6 +14,8 @@ import {
   calcularProgresso,
   isSlaVencido,
   diasRestantes,
+  resolveStatus,
+  getResponsavel,
 } from './journeyModel'
 
 const NOW = Date.now()
@@ -47,6 +50,10 @@ describe('Property 2: ETAPAS_ATIVAS ordering', () => {
       expect(ETAPAS_ATIVAS[i].ordem).toBeGreaterThan(ETAPAS_ATIVAS[i - 1].ordem)
     }
   })
+
+  it('has 9 active stages', () => {
+    expect(ETAPAS_ATIVAS.length).toBe(9)
+  })
 })
 
 // --- Property 3: getSlaDias returns positive for active, 0 for terminal ---
@@ -68,6 +75,14 @@ describe('Property 3: getSlaDias consistency', () => {
       }),
       { numRuns: 50 }
     )
+  })
+
+  it('legacy status values resolve correctly', () => {
+    expect(getSlaDias('aguardando_agendamento')).toBe(getSlaDias('analise_viabilidade'))
+    expect(getSlaDias('reuniao_agendada')).toBe(getSlaDias('retorno_cliente'))
+    expect(getSlaDias('aguardando_proposta')).toBe(getSlaDias('envio_contrato'))
+    expect(getSlaDias('negociacao')).toBe(getSlaDias('esclarecimento_duvidas'))
+    expect(getSlaDias('aguardando_contrato')).toBe(getSlaDias('recebimento_documentos'))
   })
 })
 
@@ -179,5 +194,54 @@ describe('Property 8: getStage returns correct stage', () => {
       }),
       { numRuns: 50 }
     )
+  })
+
+  it('getStage resolves legacy status to canonical stage', () => {
+    for (const [legacy, canonical] of Object.entries(LEGACY_STATUS_MAP)) {
+      const stage = getStage(legacy)
+      expect(stage).not.toBeNull()
+      expect(stage!.id).toBe(canonical)
+    }
+  })
+})
+
+// --- Property 9: resolveStatus idempotent ---
+
+describe('Property 9: resolveStatus', () => {
+  it('canonical values are unchanged', () => {
+    for (const id of allStageIds) {
+      expect(resolveStatus(id)).toBe(id)
+    }
+  })
+
+  it('legacy values map to canonical', () => {
+    for (const [legacy, canonical] of Object.entries(LEGACY_STATUS_MAP)) {
+      expect(resolveStatus(legacy)).toBe(canonical)
+    }
+  })
+
+  it('unknown values pass through', () => {
+    expect(resolveStatus('xyz_unknown')).toBe('xyz_unknown')
+  })
+})
+
+// --- Property 10: getResponsavel ---
+
+describe('Property 10: getResponsavel hybrid responsibility', () => {
+  it('operador sent last → cliente', () => {
+    expect(getResponsavel('analise_viabilidade', 'operador')).toBe('cliente')
+  })
+
+  it('cliente sent last → interno', () => {
+    expect(getResponsavel('analise_viabilidade', 'cliente')).toBe('interno')
+  })
+
+  it('no message → falls back to stage default', () => {
+    expect(getResponsavel('esclarecimento_duvidas', null)).toBe('cliente')
+    expect(getResponsavel('analise_viabilidade', null)).toBe('interno')
+  })
+
+  it('null status + null msg → interno', () => {
+    expect(getResponsavel(null, null)).toBe('interno')
   })
 })

@@ -7,13 +7,11 @@
  * Zero side effects. Zero imports externos. Testável em isolamento.
  */
 
-import type { StatusNegocio } from './resolveClassification'
-
 // ── Tipos ──
 
 export interface JourneyStage {
   /** Identificador (= status_negocio) */
-  id: StatusNegocio
+  id: string
   /** Label legível */
   label: string
   /** Descrição curta da etapa */
@@ -26,83 +24,99 @@ export interface JourneyStage {
   terminal: boolean
   /** Próxima ação imperativa para o operador */
   proximaAcao: string | null
+  /** Responsável padrão da etapa */
+  responsavel_default: 'interno' | 'cliente'
 }
 
 // ── JOURNEY_STAGES — Fonte única de verdade ──
 
 export const JOURNEY_STAGES: Record<string, JourneyStage> = {
-  aguardando_agendamento: {
-    id: 'aguardando_agendamento',
-    label: 'Aguardando Agendamento',
-    descricao: 'Cliente aguarda agendamento de reunião',
-    slaDias: 2,
-    ordem: 0,
-    terminal: false,
-    proximaAcao: 'Agendar reunião',
+  analise_viabilidade: {
+    id: 'analise_viabilidade', label: 'Análise de Viabilidade', descricao: 'Avaliar viabilidade jurídica do caso',
+    slaDias: 1, ordem: 0, terminal: false, proximaAcao: 'Analisar viabilidade', responsavel_default: 'interno',
   },
-  reuniao_agendada: {
-    id: 'reuniao_agendada',
-    label: 'Reunião Agendada',
-    descricao: 'Reunião marcada, aguardando realização',
-    slaDias: 3,
-    ordem: 1,
-    terminal: false,
-    proximaAcao: 'Enviar proposta',
+  retorno_cliente: {
+    id: 'retorno_cliente', label: 'Retorno ao Cliente', descricao: 'Retornar contato ao cliente com parecer',
+    slaDias: 1, ordem: 1, terminal: false, proximaAcao: 'Retornar ao cliente', responsavel_default: 'interno',
   },
-  aguardando_proposta: {
-    id: 'aguardando_proposta',
-    label: 'Aguardando Proposta',
-    descricao: 'Cliente aguarda proposta de honorários',
-    slaDias: 3,
-    ordem: 2,
-    terminal: false,
-    proximaAcao: 'Iniciar negociação',
+  solicitacao_documentos: {
+    id: 'solicitacao_documentos', label: 'Solicitação de Documentos', descricao: 'Solicitar documentos necessários ao cliente',
+    slaDias: 1, ordem: 2, terminal: false, proximaAcao: 'Solicitar documentos', responsavel_default: 'interno',
   },
-  negociacao: {
-    id: 'negociacao',
-    label: 'Negociação',
-    descricao: 'Proposta em negociação com o cliente',
-    slaDias: 5,
-    ordem: 3,
-    terminal: false,
-    proximaAcao: 'Gerar contrato',
+  envio_contrato: {
+    id: 'envio_contrato', label: 'Envio de Contrato', descricao: 'Enviar contrato de honorários ao cliente',
+    slaDias: 1, ordem: 3, terminal: false, proximaAcao: 'Enviar contrato', responsavel_default: 'interno',
   },
-  aguardando_contrato: {
-    id: 'aguardando_contrato',
-    label: 'Aguardando Contrato',
-    descricao: 'Contrato gerado, aguardando assinatura',
-    slaDias: 7,
-    ordem: 4,
-    terminal: false,
-    proximaAcao: 'Fechar contrato',
+  esclarecimento_duvidas: {
+    id: 'esclarecimento_duvidas', label: 'Esclarecimento de Dúvidas', descricao: 'Esclarecer dúvidas do cliente sobre contrato/processo',
+    slaDias: 1, ordem: 4, terminal: false, proximaAcao: 'Esclarecer dúvidas', responsavel_default: 'cliente',
+  },
+  recebimento_documentos: {
+    id: 'recebimento_documentos', label: 'Recebimento de Documentos', descricao: 'Aguardar recebimento dos documentos do cliente',
+    slaDias: 3, ordem: 5, terminal: false, proximaAcao: 'Cobrar documentos', responsavel_default: 'cliente',
+  },
+  cadastro_interno: {
+    id: 'cadastro_interno', label: 'Cadastro Interno', descricao: 'Cadastrar caso no sistema interno do escritório',
+    slaDias: 1, ordem: 6, terminal: false, proximaAcao: 'Cadastrar internamente', responsavel_default: 'interno',
+  },
+  confeccao_inicial: {
+    id: 'confeccao_inicial', label: 'Confecção Inicial', descricao: 'Elaborar peça inicial do processo',
+    slaDias: 7, ordem: 7, terminal: false, proximaAcao: 'Elaborar peça inicial', responsavel_default: 'interno',
+  },
+  distribuicao: {
+    id: 'distribuicao', label: 'Distribuição', descricao: 'Distribuir processo no tribunal',
+    slaDias: 7, ordem: 8, terminal: false, proximaAcao: 'Distribuir processo', responsavel_default: 'interno',
   },
   fechado: {
-    id: 'fechado',
-    label: 'Fechado',
-    descricao: 'Contrato assinado, caso convertido',
-    slaDias: 0,
-    ordem: 5,
-    terminal: true,
-    proximaAcao: null,
+    id: 'fechado', label: 'Fechado', descricao: 'Caso concluído com sucesso',
+    slaDias: 0, ordem: 9, terminal: true, proximaAcao: null, responsavel_default: 'interno',
   },
   perdido: {
-    id: 'perdido',
-    label: 'Perdido',
-    descricao: 'Caso não evoluiu ou cliente desistiu',
-    slaDias: 0,
-    ordem: 6,
-    terminal: true,
-    proximaAcao: null,
+    id: 'perdido', label: 'Perdido', descricao: 'Caso não evoluiu ou cliente desistiu',
+    slaDias: 0, ordem: 10, terminal: true, proximaAcao: null, responsavel_default: 'interno',
   },
   resolvido: {
-    id: 'resolvido',
-    label: 'Resolvido',
-    descricao: 'Demanda resolvida sem necessidade de contrato',
-    slaDias: 0,
-    ordem: 7,
-    terminal: true,
-    proximaAcao: null,
+    id: 'resolvido', label: 'Resolvido', descricao: 'Demanda resolvida sem necessidade de processo',
+    slaDias: 0, ordem: 11, terminal: true, proximaAcao: null, responsavel_default: 'interno',
   },
+}
+
+// ── Legacy status → new status mapper (backward compatibility) ──
+
+export const LEGACY_STATUS_MAP: Record<string, string> = {
+  aguardando_agendamento: 'analise_viabilidade',
+  reuniao_agendada: 'retorno_cliente',
+  aguardando_proposta: 'envio_contrato',
+  negociacao: 'esclarecimento_duvidas',
+  aguardando_contrato: 'recebimento_documentos',
+}
+
+/**
+ * Resolves a status_negocio to its canonical form.
+ * Maps legacy values to new ones. Returns as-is if already canonical.
+ */
+export function resolveStatus(status: string): string {
+  return LEGACY_STATUS_MAP[status] || status
+}
+
+/**
+ * Hybrid responsibility: uses ultima_msg_de as override, falls back to stage default.
+ * Rule: if operator sent last message → waiting for client. If client sent → operator's turn.
+ */
+export function getResponsavel(
+  statusNegocio: string | null,
+  ultimaMsgDe: string | null
+): 'interno' | 'cliente' {
+  // Message-based override (real-time truth)
+  if (ultimaMsgDe === 'operador') return 'cliente'
+  if (ultimaMsgDe === 'cliente') return 'interno'
+  // Fall back to stage default
+  if (statusNegocio) {
+    const resolved = resolveStatus(statusNegocio)
+    const stage = JOURNEY_STAGES[resolved]
+    if (stage) return stage.responsavel_default
+  }
+  return 'interno'
 }
 
 // ── SLA_POR_ETAPA — Derivado de JOURNEY_STAGES ──
@@ -123,7 +137,8 @@ export const ETAPAS_ATIVAS: JourneyStage[] = Object.values(JOURNEY_STAGES)
  * Retorna o SLA em dias para uma etapa. Default 7 se não mapeada.
  */
 export function getSlaDias(statusNegocio: string): number {
-  return SLA_POR_ETAPA[statusNegocio] ?? 7
+  const resolved = resolveStatus(statusNegocio)
+  return SLA_POR_ETAPA[resolved] ?? 7
 }
 
 /**
@@ -132,7 +147,8 @@ export function getSlaDias(statusNegocio: string): number {
  */
 export function calcularPrazoEtapa(statusNegocio: string, now?: number): Date {
   const currentTime = now ?? Date.now()
-  const dias = getSlaDias(statusNegocio)
+  const resolved = resolveStatus(statusNegocio)
+  const dias = SLA_POR_ETAPA[resolved] ?? 7
   return new Date(currentTime + dias * 24 * 60 * 60 * 1000)
 }
 
@@ -141,7 +157,8 @@ export function calcularPrazoEtapa(statusNegocio: string, now?: number): Date {
  * Retorna null se não encontrado.
  */
 export function getStage(statusNegocio: string): JourneyStage | null {
-  return JOURNEY_STAGES[statusNegocio] ?? null
+  const resolved = resolveStatus(statusNegocio)
+  return JOURNEY_STAGES[resolved] ?? null
 }
 
 /**
@@ -149,14 +166,16 @@ export function getStage(statusNegocio: string): JourneyStage | null {
  * Retorna null se etapa terminal ou não encontrada.
  */
 export function getProximaAcao(statusNegocio: string): string | null {
-  return JOURNEY_STAGES[statusNegocio]?.proximaAcao ?? null
+  const resolved = resolveStatus(statusNegocio)
+  return JOURNEY_STAGES[resolved]?.proximaAcao ?? null
 }
 
 /**
  * Retorna o label legível de uma etapa.
  */
 export function getEtapaLabel(statusNegocio: string): string {
-  return JOURNEY_STAGES[statusNegocio]?.label ?? statusNegocio
+  const resolved = resolveStatus(statusNegocio)
+  return JOURNEY_STAGES[resolved]?.label ?? statusNegocio
 }
 
 /**
@@ -164,7 +183,8 @@ export function getEtapaLabel(statusNegocio: string): string {
  * Retorna -1 se não encontrada.
  */
 export function getEtapaOrdem(statusNegocio: string): number {
-  return JOURNEY_STAGES[statusNegocio]?.ordem ?? -1
+  const resolved = resolveStatus(statusNegocio)
+  return JOURNEY_STAGES[resolved]?.ordem ?? -1
 }
 
 /**
@@ -172,7 +192,8 @@ export function getEtapaOrdem(statusNegocio: string): number {
  * Baseado na ordem da etapa atual vs total de etapas ativas.
  */
 export function calcularProgresso(statusNegocio: string): number {
-  const stage = JOURNEY_STAGES[statusNegocio]
+  const resolved = resolveStatus(statusNegocio)
+  const stage = JOURNEY_STAGES[resolved]
   if (!stage) return 0
   if (stage.terminal) return 100
   const totalAtivas = ETAPAS_ATIVAS.length

@@ -1,12 +1,19 @@
+import { resolveStatus } from './journeyModel'
+
 export const STATUS_NEXT_ACTION: Record<string, string> = {
-  aguardando_agendamento: 'Agendar reunião',
-  reuniao_agendada: 'Enviar proposta',
-  aguardando_proposta: 'Iniciar negociação',
-  negociacao: 'Fechar contrato',
-  aguardando_contrato: 'Confirmar contrato',
+  analise_viabilidade: 'Analisar viabilidade',
+  retorno_cliente: 'Retornar ao cliente',
+  solicitacao_documentos: 'Solicitar documentos',
+  envio_contrato: 'Enviar contrato',
+  esclarecimento_duvidas: 'Esclarecer dúvidas',
+  recebimento_documentos: 'Cobrar documentos',
+  cadastro_interno: 'Cadastrar internamente',
+  confeccao_inicial: 'Elaborar peça inicial',
+  distribuicao: 'Distribuir processo',
 }
 
 export function getNextActionLabel(statusNegocio: string | null): string | null {
   if (!statusNegocio) return null
-  return STATUS_NEXT_ACTION[statusNegocio] || null
+  const resolved = resolveStatus(statusNegocio)
+  return STATUS_NEXT_ACTION[resolved] || null
 }

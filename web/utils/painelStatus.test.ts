@@ -75,29 +75,29 @@ describe('getScoreVisual', () => {
 })
 
 describe('calcularPrazo', () => {
-  it('returns +2 days for aguardando_agendamento', () => {
+  it('returns +1 day for analise_viabilidade', () => {
     const before = Date.now()
-    const result = calcularPrazo('aguardando_agendamento')
+    const result = calcularPrazo('analise_viabilidade')
     const after = Date.now()
-    const expected2Days = 2 * 24 * 60 * 60 * 1000
-    expect(result.getTime()).toBeGreaterThanOrEqual(before + expected2Days)
-    expect(result.getTime()).toBeLessThanOrEqual(after + expected2Days)
+    const expected1Day = 1 * 24 * 60 * 60 * 1000
+    expect(result.getTime()).toBeGreaterThanOrEqual(before + expected1Day)
+    expect(result.getTime()).toBeLessThanOrEqual(after + expected1Day)
   })
 
-  it('returns +3 days for aguardando_proposta', () => {
+  it('returns +3 days for recebimento_documentos', () => {
     const before = Date.now()
-    const result = calcularPrazo('aguardando_proposta')
+    const result = calcularPrazo('recebimento_documentos')
     const expected3Days = 3 * 24 * 60 * 60 * 1000
     expect(result.getTime()).toBeGreaterThanOrEqual(before + expected3Days)
     expect(result.getTime()).toBeLessThanOrEqual(before + expected3Days + 100)
   })
 
-  it('returns +5 days for negociacao', () => {
+  it('returns +7 days for confeccao_inicial', () => {
     const before = Date.now()
-    const result = calcularPrazo('negociacao')
-    const expected5Days = 5 * 24 * 60 * 60 * 1000
-    expect(result.getTime()).toBeGreaterThanOrEqual(before + expected5Days)
-    expect(result.getTime()).toBeLessThanOrEqual(before + expected5Days + 100)
+    const result = calcularPrazo('confeccao_inicial')
+    const expected7Days = 7 * 24 * 60 * 60 * 1000
+    expect(result.getTime()).toBeGreaterThanOrEqual(before + expected7Days)
+    expect(result.getTime()).toBeLessThanOrEqual(before + expected7Days + 100)
   })
 
   it('returns +7 days for unknown status', () => {
@@ -106,6 +106,15 @@ describe('calcularPrazo', () => {
     const expected7Days = 7 * 24 * 60 * 60 * 1000
     expect(result.getTime()).toBeGreaterThanOrEqual(before + expected7Days)
     expect(result.getTime()).toBeLessThanOrEqual(before + expected7Days + 100)
+  })
+
+  it('legacy status resolves correctly via getSlaDias', () => {
+    const before = Date.now()
+    const result = calcularPrazo('aguardando_agendamento')
+    // aguardando_agendamento → analise_viabilidade → 1 day
+    const expected1Day = 1 * 24 * 60 * 60 * 1000
+    expect(result.getTime()).toBeGreaterThanOrEqual(before + expected1Day)
+    expect(result.getTime()).toBeLessThanOrEqual(before + expected1Day + 100)
   })
 })
 

@@ -10,6 +10,8 @@ import { resolveTreatment, TREATMENT_TIPOS, TREATMENT_DETALHES, type TreatmentTi
 import { calcularPrazo, getPrazoLabel } from '@/utils/painelStatus'
 import { getIntencaoAtual } from '@/utils/getIntencaoAtual'
 import { getNextActionLabel } from '@/utils/nextAction'
+import { getResponsavel, resolveStatus } from '@/utils/journeyModel'
+import { getNextStep, ACTION_MAP } from '@/utils/businessStateMachine'
 import { filterChildren, type SegmentNode } from '@/utils/segmentTree'
 import { cn } from '@/lib/utils'
 import PainelHeader from './PainelHeader'
@@ -43,11 +45,24 @@ function getScoreVisual(score: number) {
 function formatStatusNegocio(status: string | null): string {
   if (!status) return '—'
   const MAP: Record<string, string> = {
+    // New operational stages
+    analise_viabilidade: 'Análise de viabilidade',
+    retorno_cliente: 'Retorno ao cliente',
+    solicitacao_documentos: 'Solicitação de documentos',
+    envio_contrato: 'Envio de contrato',
+    esclarecimento_duvidas: 'Esclarecimento de dúvidas',
+    recebimento_documentos: 'Recebimento de documentos',
+    cadastro_interno: 'Cadastro interno',
+    confeccao_inicial: 'Confecção inicial',
+    distribuicao: 'Distribuição',
+    // Legacy (backward compat)
     aguardando_agendamento: 'Aguardando agendamento',
     aguardando_contato: 'Aguardando contato',
     reuniao_agendada: 'Reunião agendada',
     aguardando_proposta: 'Aguardando proposta',
     negociacao: 'Em negociação',
+    aguardando_contrato: 'Aguardando contrato',
+    // Terminal
     fechado: 'Fechado',
     perdido: 'Perdido',
     resolvido: 'Resolvido',
@@ -316,14 +331,14 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
       await supabase.from('atendimentos').update({
         estado_painel: 'em_atendimento',
         destino: 'backoffice',
-        status_negocio: 'aguardando_agendamento',
-        prazo_proxima_acao: calcularPrazo('aguardando_agendamento').toISOString(),
+        status_negocio: 'analise_viabilidade',
+        prazo_proxima_acao: calcularPrazo('analise_viabilidade').toISOString(),
         motivo_perda: null,
         encerrado_em: null,
       }).eq('identity_id', lead.identity_id)
 
       const { data: at } = await supabase.from('atendimentos').select('id').eq('identity_id', lead.identity_id).maybeSingle()
-      if (at) await supabase.from('status_transitions').insert({ atendimento_id: at.id, status_anterior: ctx.status_negocio || 'encerrado', status_novo: 'aguardando_agendamento', operador_id: operadorId })
+      if (at) await supabase.from('status_transitions').insert({ atendimento_id: at.id, status_anterior: ctx.status_negocio || 'encerrado', status_novo: 'analise_viabilidade', operador_id: operadorId })
 
       if (socket) socket.emit('estado_painel_changed', { identity_id: lead.identity_id, lead_id: lead.id, estado_painel: 'em_atendimento' })
       showToastMsg('Lead reengajado')
@@ -656,7 +671,8 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
             {(() => {
               const prazoVencido = ctx.prazo_proxima_acao && new Date(ctx.prazo_proxima_acao).getTime() < Date.now()
               const nextAction = getNextActionLabel(ctx.status_negocio)
-              const isClientWaiting = lead?.ultima_msg_de === 'operador'
+              const responsavel = getResponsavel(ctx.status_negocio, lead?.ultima_msg_de ?? null)
+              const isClientWaiting = responsavel === 'cliente'
               return (
                 <div className={cn(
                   "border rounded-lg p-3 space-y-2",
@@ -709,34 +725,29 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
           <div className="p-4 border-b space-y-2">
             <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Próxima etapa</div>
 
-            {/* Dynamic buttons based on current status_negocio */}
-            {ctx.status_negocio === 'aguardando_agendamento' && (
-              <button onClick={() => handleAvancarStatus('reuniao_agendada')} disabled={loading}
-                className="w-full py-2.5 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-40">
-                Reunião agendada
-              </button>
-            )}
+            {/* Dynamic next step button from ACTION_MAP */}
+            {(() => {
+              const resolvedStatus = ctx.status_negocio ? resolveStatus(ctx.status_negocio) : null
+              const nextStep = resolvedStatus ? getNextStep(resolvedStatus as any) : null
+              return (
+                <>
+                  {nextStep && (
+                    <button onClick={() => handleAvancarStatus(nextStep.targetStatus)} disabled={loading}
+                      className="w-full py-2.5 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-40">
+                      {nextStep.label}
+                    </button>
+                  )}
 
-            {ctx.status_negocio === 'reuniao_agendada' && (
-              <button onClick={() => handleAvancarStatus('aguardando_proposta')} disabled={loading}
-                className="w-full py-2.5 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-40">
-                Enviar proposta
-              </button>
-            )}
-
-            {ctx.status_negocio === 'aguardando_proposta' && (
-              <button onClick={() => handleAvancarStatus('negociacao')} disabled={loading}
-                className="w-full py-2.5 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-40">
-                Iniciar negociação
-              </button>
-            )}
-
-            {(ctx.status_negocio === 'negociacao' || ctx.status_negocio === 'aguardando_proposta' || ctx.status_negocio === 'reuniao_agendada') && (
-              <button onClick={() => canSeeFinanceiro ? setShowFechamentoModal(true) : showToastMsg('Apenas o responsável pode fechar contratos', 'error')} disabled={loading}
-                className="w-full py-2.5 rounded-lg text-sm font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-40">
-                Fechar contrato
-              </button>
-            )}
+                  {/* Fechar contrato — available from envio_contrato onwards */}
+                  {resolvedStatus && ['envio_contrato', 'esclarecimento_duvidas', 'recebimento_documentos', 'cadastro_interno', 'confeccao_inicial', 'distribuicao'].includes(resolvedStatus) && (
+                    <button onClick={() => canSeeFinanceiro ? setShowFechamentoModal(true) : showToastMsg('Apenas o responsável pode fechar contratos', 'error')} disabled={loading}
+                      className="w-full py-2.5 rounded-lg text-sm font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-40">
+                      Fechar contrato
+                    </button>
+                  )}
+                </>
+              )
+            })()}
 
             {/* Perdido — always available in em_atendimento */}
             <button onClick={() => setShowMotivoPopup(true)}
@@ -748,18 +759,15 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
             <details className="mt-2">
               <summary className="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">Outras ações</summary>
               <div className="mt-2 space-y-1">
-                {ctx.status_negocio !== 'aguardando_agendamento' && (
-                  <button onClick={() => handleAvancarStatus('aguardando_agendamento')} className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 rounded">← Voltar para agendamento</button>
-                )}
-                {ctx.status_negocio !== 'reuniao_agendada' && (
-                  <button onClick={() => handleAvancarStatus('reuniao_agendada')} className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 rounded">Marcar reunião agendada</button>
-                )}
-                {ctx.status_negocio !== 'aguardando_proposta' && (
-                  <button onClick={() => handleAvancarStatus('aguardando_proposta')} className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 rounded">Aguardando proposta</button>
-                )}
-                {ctx.status_negocio !== 'negociacao' && (
-                  <button onClick={() => handleAvancarStatus('negociacao')} className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 rounded">Em negociação</button>
-                )}
+                {Object.entries(ACTION_MAP).map(([statusKey, cfg]) => {
+                  const resolvedCurrent = ctx.status_negocio ? resolveStatus(ctx.status_negocio) : null
+                  if (statusKey === resolvedCurrent) return null
+                  return (
+                    <button key={statusKey} onClick={() => handleAvancarStatus(statusKey)} className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 rounded">
+                      Ir para {cfg.label.toLowerCase()}
+                    </button>
+                  )
+                })}
               </div>
             </details>
           </div>

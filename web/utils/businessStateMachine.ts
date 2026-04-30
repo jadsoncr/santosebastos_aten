@@ -1,4 +1,5 @@
 import type { StatusNegocio } from './resolveClassification'
+import { resolveStatus } from './journeyModel'
 
 // ═══════════════════════════════════════════════════════════════
 // ACTION_MAP — FONTE ÚNICA DE VERDADE
@@ -16,45 +17,77 @@ export interface ActionConfig {
 
 /** Mapa único: status_atual → ação principal + target + campos */
 export const ACTION_MAP: Record<string, ActionConfig> = {
-  aguardando_agendamento: {
-    action: 'confirmar_reuniao',
-    label: 'Confirmar reunião',
-    descricao: 'Agendar data e local da reunião com o cliente',
-    targetStatus: 'reuniao_agendada',
-    preview: 'O caso avança para Reunião Agendada',
+  analise_viabilidade: {
+    action: 'retornar_cliente',
+    label: 'Retornar ao cliente',
+    descricao: 'Retornar contato com parecer de viabilidade',
+    targetStatus: 'retorno_cliente',
+    preview: 'Avança para Retorno ao Cliente',
     fields: [],
   },
-  reuniao_agendada: {
-    action: 'enviar_proposta',
-    label: 'Enviar proposta',
-    descricao: 'Elaborar e enviar proposta de honorários ao cliente',
-    targetStatus: 'aguardando_proposta',
-    preview: 'O caso avança para Aguardando Proposta',
-    fields: ['valor'],
-  },
-  aguardando_proposta: {
-    action: 'iniciar_negociacao',
-    label: 'Iniciar negociação',
-    descricao: 'Cliente respondeu à proposta, iniciar negociação',
-    targetStatus: 'negociacao',
-    preview: 'O caso avança para Negociação',
+  retorno_cliente: {
+    action: 'solicitar_docs',
+    label: 'Solicitar documentos',
+    descricao: 'Solicitar documentos necessários',
+    targetStatus: 'solicitacao_documentos',
+    preview: 'Avança para Solicitação de Documentos',
     fields: [],
   },
-  negociacao: {
-    action: 'gerar_contrato',
-    label: 'Gerar contrato',
-    descricao: 'Termos acordados, gerar contrato para assinatura',
-    targetStatus: 'aguardando_contrato',
-    preview: 'O caso avança para Aguardando Contrato',
+  solicitacao_documentos: {
+    action: 'enviar_contrato',
+    label: 'Enviar contrato',
+    descricao: 'Enviar contrato de honorários',
+    targetStatus: 'envio_contrato',
+    preview: 'Avança para Envio de Contrato',
     fields: [],
   },
-  aguardando_contrato: {
-    action: 'fechar_contrato',
-    label: 'Fechar contrato',
-    descricao: 'Contrato assinado, finalizar caso',
+  envio_contrato: {
+    action: 'esclarecer_duvidas',
+    label: 'Esclarecer dúvidas',
+    descricao: 'Esclarecer dúvidas sobre contrato',
+    targetStatus: 'esclarecimento_duvidas',
+    preview: 'Avança para Esclarecimento de Dúvidas',
+    fields: [],
+  },
+  esclarecimento_duvidas: {
+    action: 'receber_docs',
+    label: 'Receber documentos',
+    descricao: 'Aguardar documentos do cliente',
+    targetStatus: 'recebimento_documentos',
+    preview: 'Avança para Recebimento de Documentos',
+    fields: [],
+  },
+  recebimento_documentos: {
+    action: 'cadastrar',
+    label: 'Cadastrar internamente',
+    descricao: 'Cadastrar caso no sistema interno',
+    targetStatus: 'cadastro_interno',
+    preview: 'Avança para Cadastro Interno',
+    fields: [],
+  },
+  cadastro_interno: {
+    action: 'confeccionar',
+    label: 'Elaborar peça inicial',
+    descricao: 'Elaborar peça inicial do processo',
+    targetStatus: 'confeccao_inicial',
+    preview: 'Avança para Confecção Inicial',
+    fields: [],
+  },
+  confeccao_inicial: {
+    action: 'distribuir',
+    label: 'Distribuir processo',
+    descricao: 'Distribuir processo no tribunal',
+    targetStatus: 'distribuicao',
+    preview: 'Avança para Distribuição',
+    fields: [],
+  },
+  distribuicao: {
+    action: 'fechar',
+    label: 'Concluir caso',
+    descricao: 'Caso distribuído, concluir',
     targetStatus: 'fechado',
-    preview: 'O caso será fechado como convertido',
-    fields: ['valor_contrato'],
+    preview: 'Caso será concluído',
+    fields: [],
   },
 }
 
@@ -70,31 +103,35 @@ export const VALID_TRANSITIONS: Record<string, StatusNegocio[]> = {
       [cfg.targetStatus, 'perdido'],
     ])
   )),
-  // Exceção: aguardando_proposta permite loop (ajustar proposta)
-  aguardando_proposta: ['negociacao', 'aguardando_proposta', 'perdido'],
   // Terminais
   fechado: [],
-  perdido: ['aguardando_agendamento'],
+  perdido: ['analise_viabilidade'],
   resolvido: [],
 }
 
 /** Próximo status linear — derivado do ACTION_MAP */
 export function getNextStatus(current: StatusNegocio): StatusNegocio | null {
-  return ACTION_MAP[current]?.targetStatus ?? null
+  const resolved = resolveStatus(current)
+  return ACTION_MAP[resolved]?.targetStatus ?? null
 }
 
 /** Próximo passo guiado — derivado do ACTION_MAP */
 export function getNextStep(current: StatusNegocio): ActionConfig | null {
-  return ACTION_MAP[current] ?? null
+  const resolved = resolveStatus(current)
+  return ACTION_MAP[resolved] ?? null
 }
 
 /** Labels legíveis — fonte única */
-export const STATUS_LABELS: Record<StatusNegocio, string> = {
-  aguardando_agendamento: 'Aguardando Agendamento',
-  reuniao_agendada: 'Reunião Agendada',
-  aguardando_proposta: 'Aguardando Proposta',
-  negociacao: 'Negociação',
-  aguardando_contrato: 'Aguardando Contrato',
+export const STATUS_LABELS: Record<string, string> = {
+  analise_viabilidade: 'Análise de Viabilidade',
+  retorno_cliente: 'Retorno ao Cliente',
+  solicitacao_documentos: 'Solicitação de Documentos',
+  envio_contrato: 'Envio de Contrato',
+  esclarecimento_duvidas: 'Esclarecimento de Dúvidas',
+  recebimento_documentos: 'Recebimento de Documentos',
+  cadastro_interno: 'Cadastro Interno',
+  confeccao_inicial: 'Confecção Inicial',
+  distribuicao: 'Distribuição',
   fechado: 'Fechado',
   perdido: 'Perdido',
   resolvido: 'Resolvido',
@@ -120,16 +157,20 @@ export interface AuditEntry {
 /**
  * Valida se a transição de status_negocio é permitida.
  * Usa VALID_TRANSITIONS derivado do ACTION_MAP.
+ * Resolves legacy status values before validation.
  */
 export function validateBusinessTransition(
   from: StatusNegocio,
   to: StatusNegocio
 ): TransitionResult {
-  const allowed = VALID_TRANSITIONS[from]
+  const resolvedFrom = resolveStatus(from) as StatusNegocio
+  const resolvedTo = resolveStatus(to) as StatusNegocio
+
+  const allowed = VALID_TRANSITIONS[resolvedFrom]
   if (!allowed) {
     return { allowed: false, error: `Estado "${from}" não reconhecido.` }
   }
-  if (!allowed.includes(to)) {
+  if (!allowed.includes(resolvedTo)) {
     return {
       allowed: false,
       error: `Transição "${from}" → "${to}" não permitida. Válidas: ${allowed.join(', ') || 'nenhuma (terminal)'}.`,

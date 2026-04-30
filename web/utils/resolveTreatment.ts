@@ -30,13 +30,13 @@ const TREATMENT_MAP: Record<string, TreatmentResult> = {
   'Informação::Outros': { destino: 'encerrado', status_negocio: 'resolvido' },
 
   // Solicitação → backoffice
-  'Solicitação::Reunião': { destino: 'backoffice', status_negocio: 'aguardando_agendamento' },
-  'Solicitação::Contato': { destino: 'backoffice', status_negocio: 'aguardando_agendamento' },
-  'Solicitação::Proposta': { destino: 'backoffice', status_negocio: 'aguardando_proposta' },
-  'Solicitação::Revisão/Proposta': { destino: 'backoffice', status_negocio: 'negociacao' },
+  'Solicitação::Reunião': { destino: 'backoffice', status_negocio: 'analise_viabilidade' },
+  'Solicitação::Contato': { destino: 'backoffice', status_negocio: 'analise_viabilidade' },
+  'Solicitação::Proposta': { destino: 'backoffice', status_negocio: 'envio_contrato' },
+  'Solicitação::Revisão/Proposta': { destino: 'backoffice', status_negocio: 'esclarecimento_duvidas' },
 
   // Retorno → backoffice
-  'Retorno::Revisão/Proposta': { destino: 'backoffice', status_negocio: 'negociacao' },
+  'Retorno::Revisão/Proposta': { destino: 'backoffice', status_negocio: 'esclarecimento_duvidas' },
 
   // BadCall → encerrado (NÃO exige classificação jurídica)
   'BadCall::Sem retorno': { destino: 'encerrado', status_negocio: 'perdido' },

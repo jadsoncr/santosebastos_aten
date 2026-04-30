@@ -1,9 +1,21 @@
 export type StatusNegocio =
+  // New operational stages
+  | 'analise_viabilidade'
+  | 'retorno_cliente'
+  | 'solicitacao_documentos'
+  | 'envio_contrato'
+  | 'esclarecimento_duvidas'
+  | 'recebimento_documentos'
+  | 'cadastro_interno'
+  | 'confeccao_inicial'
+  | 'distribuicao'
+  // Legacy (mapped via LEGACY_STATUS_MAP)
   | 'aguardando_agendamento'
   | 'reuniao_agendada'
   | 'aguardando_proposta'
   | 'negociacao'
   | 'aguardando_contrato'
+  // Terminal
   | 'fechado'
   | 'perdido'
   | 'resolvido'

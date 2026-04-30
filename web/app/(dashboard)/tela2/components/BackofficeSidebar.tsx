@@ -10,7 +10,7 @@ import { deriveGlobalPriority, isGlobalCritical } from '@/utils/globalPriority'
 import { splitLeads } from '@/utils/criticalPressure'
 import { useCriticalAlert } from '@/hooks/useCriticalAlert'
 import { trackEvent, resolveLeadSelectEvents } from '@/utils/behaviorTracker'
-import { getProximaAcao, getEtapaLabel, calcularProgresso, isSlaVencido, diasRestantes } from '@/utils/journeyModel'
+import { getProximaAcao, getEtapaLabel, calcularProgresso, isSlaVencido, diasRestantes, getResponsavel } from '@/utils/journeyModel'
 import { getPrazoLabel } from '@/utils/painelStatus'
 import type { Lead } from '../../tela1/page'
 
@@ -311,11 +311,11 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
             )}
             <span className={cn(
               'text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full shrink-0',
-              item.ultima_msg_de === 'operador'
+              getResponsavel(item.status_negocio ?? null, item.ultima_msg_de ?? null) === 'cliente'
                 ? 'bg-yellow-50 text-yellow-700'
                 : 'bg-blue-50 text-blue-700'
             )}>
-              {item.ultima_msg_de === 'operador' ? '⏳ Cliente' : '👉 Ação'}
+              {getResponsavel(item.status_negocio ?? null, item.ultima_msg_de ?? null) === 'cliente' ? '⏳ Cliente' : '👉 Ação'}
             </span>
             {item.prazo_proxima_acao && (
               <span className={cn(
