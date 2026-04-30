@@ -297,48 +297,63 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
           {getInitials(item.nome, item.telefone)}
         </div>
 
-        {/* Content */}
+        {/* Content — decision-first hierarchy */}
         <div className="flex-1 min-w-0">
-          {/* Line 1: Name + Time */}
-          <div className="flex justify-between items-baseline mb-0.5">
-            <h3 className="font-bold text-gray-900 truncate text-sm">{displayName}</h3>
-            <div className="flex items-center gap-1.5 shrink-0 ml-2">
-              {urgency.level === 'critical' && (
-                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              )}
-              {urgency.label && <span className={`text-[9px] font-bold ${urgency.textColor}`}>{urgency.label}</span>}
-              <span className={cn('text-[9px] font-bold', urgency.level !== 'normal' ? urgency.textColor : 'text-gray-300')}>
-                {timeAgo(item.ultima_msg_em || item.created_at)}
-              </span>
-            </div>
-          </div>
-
-          {/* Line 2: Preview */}
-          <p className="text-xs text-gray-400 truncate font-medium">{preview}</p>
-
-          {/* Line 3: Etapa + Próxima ação + SLA */}
-          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+          {/* Line 1: Etapa + Responsabilidade + SLA */}
+          <div className="flex items-center gap-1.5 mb-1">
             {item.status_negocio && (
-              <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 truncate max-w-[100px]">
+              <span className={cn(
+                'text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full truncate max-w-[110px]',
+                prazoVencido ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+              )}>
                 {getEtapaLabel(item.status_negocio)}
               </span>
             )}
-            {item.status_negocio && getProximaAcao(item.status_negocio) && (
-              <span className="text-[8px] font-bold text-blue-600 truncate">
-                → {getProximaAcao(item.status_negocio)}
-              </span>
-            )}
+            <span className={cn(
+              'text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full shrink-0',
+              item.ultima_msg_de === 'operador'
+                ? 'bg-yellow-50 text-yellow-700'
+                : 'bg-blue-50 text-blue-700'
+            )}>
+              {item.ultima_msg_de === 'operador' ? '⏳ Cliente' : '👉 Ação'}
+            </span>
             {item.prazo_proxima_acao && (
               <span className={cn(
                 'text-[8px] font-bold ml-auto shrink-0',
-                isSlaVencido(item.prazo_proxima_acao) ? 'text-red-600' : 'text-gray-400'
+                prazoVencido ? 'text-red-600' : 'text-gray-400'
               )}>
                 {getPrazoLabel(item.prazo_proxima_acao)}
               </span>
             )}
           </div>
 
-          {/* Line 4: Owner + Badge */}
+          {/* Line 2: Name + Time */}
+          <div className="flex justify-between items-baseline mb-0.5">
+            <h3 className="font-bold text-gray-900 truncate text-sm">{displayName}</h3>
+            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+              {urgency.level === 'critical' && (
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              )}
+              <span className={cn('text-[9px] font-bold', urgency.level !== 'normal' ? urgency.textColor : 'text-gray-300')}>
+                {timeAgo(item.ultima_msg_em || item.created_at)}
+              </span>
+            </div>
+          </div>
+
+          {/* Line 3: Próxima ação (dominant) */}
+          {item.status_negocio && getProximaAcao(item.status_negocio) && (
+            <div className={cn(
+              'text-[10px] font-bold truncate',
+              prazoVencido ? 'text-red-600' : 'text-blue-600'
+            )}>
+              → {getProximaAcao(item.status_negocio)}
+            </div>
+          )}
+
+          {/* Line 4: Preview (subtle) */}
+          <p className="text-[10px] text-gray-300 truncate mt-0.5">{preview}</p>
+
+          {/* Line 5: Owner + Badge */}
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-[9px] text-gray-400 truncate">
               {item.ownerName || 'Livre'}
