@@ -254,6 +254,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         status_negocio: novoStatus,
         estado_painel: novoEstadoPainel,
         ...(novoStatus === 'perdido' ? { encerrado_em: new Date().toISOString() } : {}),
+        ...(novoStatus !== 'fechado' && novoStatus !== 'perdido' ? { prazo_proxima_acao: calcularPrazo(novoStatus).toISOString() } : {}),
       }).eq('identity_id', lead.identity_id)
 
       // Audit trail
@@ -316,6 +317,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         estado_painel: 'em_atendimento',
         destino: 'backoffice',
         status_negocio: 'aguardando_agendamento',
+        prazo_proxima_acao: calcularPrazo('aguardando_agendamento').toISOString(),
         motivo_perda: null,
         encerrado_em: null,
       }).eq('identity_id', lead.identity_id)
@@ -653,28 +655,49 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
             <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Status atual</div>
             {(() => {
               const prazoVencido = ctx.prazo_proxima_acao && new Date(ctx.prazo_proxima_acao).getTime() < Date.now()
+              const nextAction = getNextActionLabel(ctx.status_negocio)
+              const isClientWaiting = lead?.ultima_msg_de === 'operador'
               return (
                 <div className={cn(
                   "border rounded-lg p-3 space-y-2",
                   prazoVencido ? "bg-red-50 border-red-200" : "bg-blue-50 border-blue-200"
                 )}>
-                  <div className={cn("text-sm font-bold", prazoVencido ? "text-red-900" : "text-blue-900")}>
-                    {formatStatusNegocio(ctx.status_negocio)}
+                  <div className="flex items-center justify-between">
+                    <div className={cn("text-sm font-bold", prazoVencido ? "text-red-900" : "text-blue-900")}>
+                      {formatStatusNegocio(ctx.status_negocio)}
+                    </div>
+                    {/* Responsibility indicator */}
+                    <span className={cn(
+                      "text-[9px] font-black uppercase px-2 py-0.5 rounded-full",
+                      isClientWaiting
+                        ? "bg-yellow-100 text-yellow-700"
+                        : "bg-blue-100 text-blue-700"
+                    )}>
+                      {isClientWaiting ? '⏳ Aguardando cliente' : '👉 Sua ação'}
+                    </span>
                   </div>
                   {ctx.prazo_proxima_acao && (
                     <div className={cn("text-xs", prazoVencido ? "text-red-700" : "text-blue-700")}>
-                      <span className="text-gray-400">Próxima ação: </span>
+                      <span className="text-gray-400">Prazo: </span>
                       <span className="font-medium">{getPrazoLabel(ctx.prazo_proxima_acao)}</span>
                     </div>
                   )}
-                  {(() => {
-                    const nextAction = getNextActionLabel(ctx.status_negocio)
-                    return nextAction ? (
-                      <div className="text-xs text-blue-600 font-medium mt-1">
-                        👉 Próximo: {nextAction}
-                      </div>
-                    ) : null
-                  })()}
+                  {/* Dominant CTA — next action highlighted */}
+                  {nextAction && !isClientWaiting && (
+                    <div className={cn(
+                      "text-sm font-black mt-1 px-3 py-2 rounded-lg text-center",
+                      prazoVencido
+                        ? "bg-red-600 text-white"
+                        : "bg-blue-600 text-white"
+                    )}>
+                      🔴 {nextAction}
+                    </div>
+                  )}
+                  {nextAction && isClientWaiting && (
+                    <div className="text-xs text-gray-500 font-medium mt-1">
+                      Próximo quando cliente responder: {nextAction}
+                    </div>
+                  )}
                 </div>
               )
             })()}
