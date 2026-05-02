@@ -865,8 +865,8 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
                     </button>
                   )}
 
-                  {/* Fechar contrato — available from envio_contrato onwards */}
-                  {resolvedStatus && ['envio_contrato', 'esclarecimento_duvidas', 'recebimento_documentos', 'cadastro_interno', 'confeccao_inicial', 'distribuicao'].includes(resolvedStatus) && (
+                  {/* Fechar contrato — only when case is ready (recebimento_documentos+) AND prereq confirmed */}
+                  {resolvedStatus && ['recebimento_documentos', 'cadastro_interno', 'confeccao_inicial', 'distribuicao', 'em_andamento'].includes(resolvedStatus) && prereqChecked && (
                     <button onClick={() => canSeeFinanceiro ? setShowFechamentoModal(true) : showToastMsg('Apenas o responsável pode fechar contratos', 'error')} disabled={loading}
                       className="w-full py-2.5 rounded-lg text-sm font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-40">
                       Executar fechamento
