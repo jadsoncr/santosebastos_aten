@@ -876,9 +876,9 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
               )
             })()}
 
-            {/* Perdido — always available in em_atendimento */}
+            {/* Encerrar — ação de exceção (link discreto, não botão primário) */}
             <button onClick={() => setShowMotivoPopup(true)}
-              className="w-full py-2.5 rounded-lg text-sm font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
+              className="w-full py-2 text-center text-[11px] font-medium text-gray-400 hover:text-red-500 transition-colors">
               Encerrar decisão
             </button>
 
