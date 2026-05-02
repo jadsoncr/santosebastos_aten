@@ -402,6 +402,8 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         tipo_honorario: tipoHonorario,
         status_pagamento: parseFloat(valorEntrada) > 0 ? 'pendente' : 'nao_aplicavel',
         forma_pagamento: parseFloat(valorEntrada) > 0 ? formaPagamento : null,
+        estado_valor: 'realizado',
+        estado_valor_updated_at: new Date().toISOString(),
         encerrado_em: new Date().toISOString(),
       }).eq('identity_id', lead.identity_id)
 
@@ -717,6 +719,51 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
                 </div>
               )
             })()}
+          </div>
+        )}
+
+        {/* ═══ VALOR DO CASO (em_atendimento + cliente) ═══ */}
+        {(mode.statusAtual || mode.contrato) && (
+          <div className="p-4 border-b space-y-2">
+            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Valor do caso</div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm">{(() => { const { getEstadoValorBadge } = require('@/utils/journeyModel'); return getEstadoValorBadge(ctx.estado_valor) })()}</span>
+              <span className={`text-xs font-bold ${(() => { const { getEstadoValorColor } = require('@/utils/journeyModel'); return getEstadoValorColor(ctx.estado_valor) })()}`}>
+                {(() => {
+                  const { getEstadoValorLabel } = require('@/utils/journeyModel')
+                  if (ctx.estado_valor === 'realizado' && ctx.valor_contrato) {
+                    return `Valor realizado: R$ ${Number(ctx.valor_contrato).toLocaleString('pt-BR')}`
+                  }
+                  if (ctx.estado_valor === 'estimado' && ctx.valor_contrato) {
+                    return `Estimativa interna: R$ ${Number(ctx.valor_contrato).toLocaleString('pt-BR')} (não vinculante)`
+                  }
+                  return getEstadoValorLabel(ctx.estado_valor as any)
+                })()}
+              </span>
+            </div>
+            {ctx.estado_valor === 'indefinido' && mode.statusAtual && (
+              <button
+                onClick={async () => {
+                  const valor = prompt('Estimativa interna do caso (R$):')
+                  if (!valor || !lead?.identity_id) return
+                  await supabase.from('atendimentos').update({
+                    estado_valor: 'estimado',
+                    estado_valor_updated_at: new Date().toISOString(),
+                    valor_contrato: parseFloat(valor) || 0,
+                  }).eq('identity_id', lead.identity_id)
+                  // Audit
+                  const { data: at } = await supabase.from('atendimentos').select('id').eq('identity_id', lead.identity_id).maybeSingle()
+                  if (at && operadorId) {
+                    await supabase.from('status_transitions').insert({ atendimento_id: at.id, status_anterior: 'valor_indefinido', status_novo: 'valor_estimado', operador_id: operadorId })
+                  }
+                  showToastMsg('Estimativa definida')
+                  ctx.refetch()
+                }}
+                className="text-[10px] font-bold text-blue-600 hover:underline"
+              >
+                Definir estimativa
+              </button>
+            )}
           </div>
         )}
 

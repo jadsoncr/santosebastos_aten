@@ -20,6 +20,7 @@ export interface PainelContext {
   encerrado_em: string | null
   ciclo: number | null
   percentual_exito: number | null
+  estado_valor: string | null
   loading: boolean
   refetch: () => void
 }
@@ -38,6 +39,7 @@ const EMPTY_CTX: Omit<PainelContext, 'lead_id' | 'refetch'> = {
   encerrado_em: null,
   ciclo: null,
   percentual_exito: null,
+  estado_valor: null,
   loading: false,
 }
 
@@ -72,7 +74,7 @@ export function usePainelContext(lead: LeadInput | null): PainelContext {
       if (lead.identity_id) {
         const res = await supabase
           .from('atendimentos')
-          .select('owner_id, estado_painel, status_negocio, destino, prazo_proxima_acao, motivo_perda, valor_contrato, status_pagamento, encerrado_em, ciclo, percentual_exito')
+          .select('owner_id, estado_painel, status_negocio, destino, prazo_proxima_acao, motivo_perda, valor_contrato, status_pagamento, encerrado_em, ciclo, percentual_exito, estado_valor')
           .eq('identity_id', lead.identity_id)
           .maybeSingle()
         data = res.data
@@ -104,6 +106,7 @@ export function usePainelContext(lead: LeadInput | null): PainelContext {
           encerrado_em: data.encerrado_em,
           ciclo: data.ciclo,
           percentual_exito: data.percentual_exito,
+          estado_valor: data.estado_valor || 'indefinido',
           loading: false,
         })
       } else {

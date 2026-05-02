@@ -220,3 +220,44 @@ export function diasRestantes(prazoProximaAcao: string | null, now?: number): nu
   const diffMs = new Date(prazoProximaAcao).getTime() - currentTime
   return Math.ceil(diffMs / (24 * 60 * 60 * 1000))
 }
+
+
+// ── Estado de Valor Jurídico ──
+
+export type EstadoValor = 'indefinido' | 'estimado' | 'realizado'
+
+/**
+ * Retorna o label legível para o estado de valor.
+ */
+export function getEstadoValorLabel(estado: EstadoValor | null): string {
+  switch (estado) {
+    case 'estimado': return 'Estimativa interna (não vinculante)'
+    case 'realizado': return 'Valor realizado'
+    case 'indefinido':
+    default: return 'Valor a ser definido'
+  }
+}
+
+/**
+ * Retorna a classe de cor Tailwind para o estado de valor.
+ */
+export function getEstadoValorColor(estado: EstadoValor | null): string {
+  switch (estado) {
+    case 'estimado': return 'text-yellow-600'
+    case 'realizado': return 'text-green-600'
+    case 'indefinido':
+    default: return 'text-gray-400'
+  }
+}
+
+/**
+ * Retorna o ícone/badge para o estado de valor.
+ */
+export function getEstadoValorBadge(estado: EstadoValor | null): string {
+  switch (estado) {
+    case 'estimado': return '🟡'
+    case 'realizado': return '🟢'
+    case 'indefinido':
+    default: return '⚪'
+  }
+}
