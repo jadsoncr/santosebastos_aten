@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { getDecisionContext, type DecisionContext } from '@/utils/decisionContext'
 import { cn } from '@/lib/utils'
@@ -30,7 +30,10 @@ export default function CCOPage() {
   const [atendimentos, setAtendimentos] = useState<AtendimentoRow[]>([])
   const [operadores, setOperadores] = useState<OperadorInfo[]>([])
   const [loading, setLoading] = useState(true)
+  const [operatorFilter, setOperatorFilter] = useState<string>('all')
+  const [dateFilter, setDateFilter] = useState<string>('30d')
   const supabase = createClient()
+  const realtimeRef = useRef<NodeJS.Timeout | null>(null)
 
   const load = useCallback(async () => {
     const [atsRes, opsRes] = await Promise.all([
@@ -47,15 +50,50 @@ export default function CCOPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Real-time: debounced refetch on atendimentos changes
   useEffect(() => {
-    const timer = setInterval(load, 30000)
-    return () => clearInterval(timer)
+    const channel = supabase
+      .channel('dashboard-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'atendimentos' }, () => {
+        if (realtimeRef.current) return
+        realtimeRef.current = setTimeout(() => {
+          load()
+          realtimeRef.current = null
+        }, 1000)
+      })
+      .subscribe()
+
+    return () => {
+      if (realtimeRef.current) clearTimeout(realtimeRef.current)
+      supabase.removeChannel(channel)
+    }
   }, [load])
+
+  // ── Filters ──
+  const filteredAtendimentos = useMemo(() => {
+    return atendimentos.filter(at => {
+      // Operator filter
+      if (operatorFilter !== 'all' && at.owner_id !== operatorFilter) return false
+      // Date filter
+      const created = new Date(at.created_at).getTime()
+      const now = Date.now()
+      if (dateFilter === 'today') {
+        const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0)
+        if (created < startOfDay.getTime()) return false
+      } else if (dateFilter === '7d') {
+        if (now - created > 7 * 86400000) return false
+      } else if (dateFilter === '30d') {
+        if (now - created > 30 * 86400000) return false
+      }
+      return true
+    })
+  }, [atendimentos, operatorFilter, dateFilter])
 
   // ── Derive all contexts using the decision engine ──
   const activeAts = useMemo(() =>
-    atendimentos.filter(a => a.estado_painel === 'triagem' || a.estado_painel === 'em_atendimento'),
-  [atendimentos])
+    filteredAtendimentos.filter(a => a.estado_painel === 'triagem' || a.estado_painel === 'em_atendimento'),
+  [filteredAtendimentos])
 
   const contexts = useMemo(() =>
     activeAts.map(at => {
@@ -104,9 +142,9 @@ export default function CCOPage() {
 
   // Financial metrics
   const financeiro = useMemo(() => {
-    const emExecucao = atendimentos.filter(a => a.estado_painel === 'em_atendimento')
-    const clientes = atendimentos.filter(a => a.estado_painel === 'cliente')
-    const encerrados = atendimentos.filter(a => a.estado_painel === 'encerrado')
+    const emExecucao = filteredAtendimentos.filter(a => a.estado_painel === 'em_atendimento')
+    const clientes = filteredAtendimentos.filter(a => a.estado_painel === 'cliente')
+    const encerrados = filteredAtendimentos.filter(a => a.estado_painel === 'encerrado')
 
     const valorPipeline = emExecucao.reduce((s, a) => s + (Number(a.valor_contrato) || 0), 0)
     const valorRealizado = clientes.reduce((s, a) => s + (Number(a.valor_contrato) || 0), 0)
@@ -117,7 +155,7 @@ export default function CCOPage() {
       : 0
 
     return { valorPipeline, valorRealizado, valorPerdido, taxaConversao, clientesAtivos: clientes.length, encerradosTotal: encerrados.length }
-  }, [atendimentos])
+  }, [filteredAtendimentos])
 
   // Counters
   const totalAtivos = activeAts.length
@@ -134,9 +172,33 @@ export default function CCOPage() {
 
   return (
     <div className="p-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Centro de Decisão Operacional</h1>
-        <p className="text-sm text-gray-400 mt-1">{totalAtivos} decisões ativas • Atualiza a cada 30s</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Centro de Decisão Operacional</h1>
+          <p className="text-sm text-gray-400 mt-1">{totalAtivos} decisões ativas • Real-time</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <select
+            value={operatorFilter}
+            onChange={e => setOperatorFilter(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-700 bg-white"
+          >
+            <option value="all">Todos operadores</option>
+            {operadores.map(op => (
+              <option key={op.id} value={op.id}>{op.nome}</option>
+            ))}
+          </select>
+          <select
+            value={dateFilter}
+            onChange={e => setDateFilter(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-700 bg-white"
+          >
+            <option value="today">Hoje</option>
+            <option value="7d">7 dias</option>
+            <option value="30d">30 dias</option>
+            <option value="all">Todos</option>
+          </select>
+        </div>
       </div>
 
       {/* ═══ ROW 1: Ação imediata (decision cards) ═══ */}
