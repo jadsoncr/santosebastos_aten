@@ -317,6 +317,10 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
 
       showToastMsg(novoStatus === 'fechado' ? 'Decisão concluída — receita' : novoStatus === 'perdido' ? 'Decisão encerrada' : 'Estado atualizado')
       ctx.refetch()
+      // Auto-select next if case leaves current view
+      if (novoStatus === 'fechado' || novoStatus === 'perdido') {
+        onLeadClosed()
+      }
     } catch (err: any) { showToastMsg(err.message || 'Erro', 'error') }
     finally { setLoading(false) }
   }
@@ -403,6 +407,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
       if (socket) socket.emit('estado_painel_changed', { identity_id: lead.identity_id, lead_id: lead.id, estado_painel: 'triagem' })
       showToastMsg('Nova decisão iniciada')
       ctx.refetch()
+      onLeadClosed()
     } catch (err: any) { showToastMsg(err.message || 'Erro', 'error') }
     finally { setLoading(false) }
   }
@@ -450,6 +455,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
       setShowFechamentoModal(false)
       setValorContrato('')
       ctx.refetch()
+      onLeadClosed()
     } catch (err: any) { showToastMsg(err.message || 'Erro', 'error') }
     finally { setLoading(false) }
   }
