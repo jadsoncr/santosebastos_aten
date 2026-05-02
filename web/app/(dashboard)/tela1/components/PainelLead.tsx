@@ -532,7 +532,11 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
           ownerNome={ctx.owner_nome}
           isOwner={isOwner}
           leadId={lead.id}
-          operadorId={operadorId}
+          leadNome={lead.nome}
+          leadTelefone={lead.telefone}
+          leadCanal={lead.canal_origem}
+          operadorId={operadorId || null}
+          role={role || 'operador'}
           onDelegated={() => { showToastMsg('Decisão delegada'); ctx.refetch() }}
         />
       )}
