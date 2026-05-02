@@ -255,6 +255,42 @@ export function getConfirmLabel(statusNegocio: string): string | null {
   return JOURNEY_STAGES[resolved]?.confirmLabel ?? null
 }
 
+// ── Status derivado automaticamente ──
+
+export type StatusCaso = 'em_andamento' | 'aguardando_cliente' | 'concluido'
+
+export interface DerivedStatus {
+  status_caso: StatusCaso
+  status_motivo: string
+}
+
+/**
+ * Mapeamento: ao SAIR de uma etapa (confirmar), qual status o sistema grava.
+ * Lógica: se a próxima etapa tem responsavel_default='cliente', status='aguardando_cliente'.
+ * Caso contrário, 'em_andamento'.
+ */
+const STAGE_TO_STATUS: Record<string, DerivedStatus> = {
+  analise_viabilidade: { status_caso: 'em_andamento', status_motivo: 'analise_viabilidade' },
+  retorno_cliente: { status_caso: 'aguardando_cliente', status_motivo: 'aguardando_resposta_proposta' },
+  solicitacao_documentos: { status_caso: 'aguardando_cliente', status_motivo: 'aguardando_documentos' },
+  envio_contrato: { status_caso: 'aguardando_cliente', status_motivo: 'aguardando_assinatura_contrato' },
+  esclarecimento_duvidas: { status_caso: 'aguardando_cliente', status_motivo: 'aguardando_confirmacao_interesse' },
+  recebimento_documentos: { status_caso: 'em_andamento', status_motivo: 'cadastro_interno' },
+  cadastro_interno: { status_caso: 'em_andamento', status_motivo: 'elaboracao_peca' },
+  confeccao_inicial: { status_caso: 'em_andamento', status_motivo: 'envio_contrato' },
+  distribuicao: { status_caso: 'em_andamento', status_motivo: 'validacao_interna' },
+  em_andamento: { status_caso: 'em_andamento', status_motivo: 'follow_up' },
+}
+
+/**
+ * Retorna o status derivado ao confirmar/sair de uma etapa.
+ * Usado no handleAvancarStatus para gravar status_caso + status_motivo automaticamente.
+ */
+export function deriveStatus(currentStage: string): DerivedStatus | null {
+  const resolved = resolveStatus(currentStage)
+  return STAGE_TO_STATUS[resolved] ?? null
+}
+
 
 // ── Estado de Valor Jurídico ──
 

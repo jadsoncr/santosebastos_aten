@@ -10,7 +10,7 @@ import { resolveTreatment, TREATMENT_TIPOS, TREATMENT_DETALHES, type TreatmentTi
 import { calcularPrazo, getPrazoLabel } from '@/utils/painelStatus'
 import { getIntencaoAtual } from '@/utils/getIntencaoAtual'
 import { getNextActionLabel } from '@/utils/nextAction'
-import { getResponsavel, resolveStatus, getEstadoValorBadge, getEstadoValorColor, getEstadoValorLabel, getPrereq, getConfirmLabel } from '@/utils/journeyModel'
+import { getResponsavel, resolveStatus, getEstadoValorBadge, getEstadoValorColor, getEstadoValorLabel, getPrereq, getConfirmLabel, deriveStatus } from '@/utils/journeyModel'
 import { getDecisionContext } from '@/utils/decisionContext'
 import { suggestClassification, findSegmentIdByName } from '@/utils/classificationSuggestion'
 import { getNextStep, ACTION_MAP } from '@/utils/businessStateMachine'
@@ -287,10 +287,15 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         ? 'encerrado'
         : 'em_atendimento'
 
+      // Derive status_caso + status_motivo from the stage we're leaving
+      const derived = statusAnterior ? deriveStatus(statusAnterior) : null
+
       await supabase.from('atendimentos').update({
         status_negocio: novoStatus,
         estado_painel: novoEstadoPainel,
-        ...(novoStatus === 'perdido' ? { encerrado_em: new Date().toISOString() } : {}),
+        ...(novoStatus === 'perdido' ? { encerrado_em: new Date().toISOString(), status_caso: 'concluido', status_motivo: 'perdido' } : {}),
+        ...(novoStatus === 'fechado' ? { status_caso: 'concluido', status_motivo: 'finalizado' } : {}),
+        ...(novoStatus !== 'fechado' && novoStatus !== 'perdido' && derived ? { status_caso: derived.status_caso, status_motivo: derived.status_motivo } : {}),
         ...(novoStatus !== 'fechado' && novoStatus !== 'perdido' ? { prazo_proxima_acao: calcularPrazo(novoStatus).toISOString() } : {}),
       }).eq('identity_id', lead.identity_id)
 
