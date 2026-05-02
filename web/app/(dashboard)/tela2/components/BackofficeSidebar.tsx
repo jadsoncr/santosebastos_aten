@@ -18,6 +18,7 @@ import type { Lead } from '../../tela1/page'
 interface Props {
   selectedLeadId: string | null
   onSelectLead: (lead: Lead) => void
+  closedLeadId?: string | null
 }
 
 interface BackofficeItem extends Lead {
@@ -57,7 +58,7 @@ function getInitials(nome: string | null, telefone: string | null): string {
   return telefone ? telefone.slice(-2) : '??'
 }
 
-export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Props) {
+export default function BackofficeSidebar({ selectedLeadId, onSelectLead, closedLeadId }: Props) {
   const [cases, setCases] = useState<BackofficeItem[]>([])
   const [operadorId, setOperadorId] = useState<string | null>(null)
   const socket = useSocket()
@@ -153,6 +154,13 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
 
   // Initial load
   useEffect(() => { loadCases() }, [loadCases])
+
+  // Remove closed lead from local list immediately (auto-select next)
+  useEffect(() => {
+    if (closedLeadId) {
+      setCases(prev => prev.filter(c => c.id !== closedLeadId))
+    }
+  }, [closedLeadId])
 
   // Debounced reload
   // eslint-disable-next-line react-hooks/exhaustive-deps

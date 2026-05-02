@@ -8,8 +8,10 @@ import type { Lead } from '../tela1/page'
 
 export default function BackOfficePage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
+  const [closedLeadId, setClosedLeadId] = useState<string | null>(null)
 
   const handleLeadClosed = () => {
+    if (selectedLead) setClosedLeadId(selectedLead.id)
     setSelectedLead(null)
   }
 
@@ -18,6 +20,7 @@ export default function BackOfficePage() {
       <BackofficeSidebar
         selectedLeadId={selectedLead?.id ?? null}
         onSelectLead={setSelectedLead}
+        closedLeadId={closedLeadId}
       />
       <div className="flex-1 flex flex-col bg-[#F6F8FC]">
         <ChatCentral lead={selectedLead} />
