@@ -1,180 +1,242 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { MessageSquare, Users, CheckCircle, Archive, Clock, TrendingUp, AlertTriangle, DollarSign } from 'lucide-react'
+import { getDecisionContext, type DecisionContext } from '@/utils/decisionContext'
+import { cn } from '@/lib/utils'
 
-interface Counters {
-  leadsHoje: number
-  emAtendimento: number
-  clientesAtivos: number
-  encerrados: number
+interface AtendimentoRow {
+  id: string
+  created_at: string
+  estado_painel: string
+  status_negocio: string | null
+  prazo_proxima_acao: string | null
+  owner_id: string | null
+  valor_entrada: number | null
+  valor_contrato: number | null
+  estado_valor: string | null
+  status_pagamento: string | null
+  encerrado_em: string | null
+  lead_id: string | null
+  leads: Array<{ ultima_msg_em: string | null; ultima_msg_de: string | null; created_at: string; nome: string | null }> | null
 }
 
-interface Metricas {
-  semResposta: number
-  taxaConversao: number
-  tempoMedioPipeline: number | null
-}
-
-interface ValorCards {
-  valorPipeline: number
-  valorReceitaMes: number
-  valorPerdido: number
+interface OperadorInfo {
+  id: string
+  nome: string
 }
 
 export default function CCOPage() {
-  const [counters, setCounters] = useState<Counters>({ leadsHoje: 0, emAtendimento: 0, clientesAtivos: 0, encerrados: 0 })
-  const [metricas, setMetricas] = useState<Metricas>({ semResposta: 0, taxaConversao: 0, tempoMedioPipeline: null })
-  const [valores, setValores] = useState<ValorCards>({ valorPipeline: 0, valorReceitaMes: 0, valorPerdido: 0 })
+  const [atendimentos, setAtendimentos] = useState<AtendimentoRow[]>([])
+  const [operadores, setOperadores] = useState<OperadorInfo[]>([])
+  const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
   const load = useCallback(async () => {
-      const hoje = new Date()
-      hoje.setHours(0, 0, 0, 0)
-
-      const [leads, atendimentos, semRespostaResult] = await Promise.all([
-        supabase.from('leads').select('id', { count: 'exact', head: true }).gte('created_at', hoje.toISOString()),
-        supabase.from('atendimentos').select('estado_painel, assumido_em, encerrado_em'),
-        supabase
-          .from('leads')
-          .select('id', { count: 'exact', head: true })
-          .eq('ultima_msg_de', 'cliente')
-          .lt('ultima_msg_em', new Date(Date.now() - 30 * 60 * 1000).toISOString()),
-      ])
-
-      const ats = atendimentos.data || []
-
-      // Contadores
-      setCounters({
-        leadsHoje: leads.count || 0,
-        emAtendimento: ats.filter(a => a.estado_painel === 'em_atendimento').length,
-        clientesAtivos: ats.filter(a => a.estado_painel === 'cliente').length,
-        encerrados: ats.filter(a => a.estado_painel === 'encerrado').length,
-      })
-
-      // Taxa conversão: clientes / (clientes + encerrados)
-      const clientesMes = ats.filter(a => a.estado_painel === 'cliente').length
-      const encerradosMes = ats.filter(a => a.estado_painel === 'encerrado').length
-      const taxaConversao = clientesMes + encerradosMes > 0
-        ? Math.round((clientesMes / (clientesMes + encerradosMes)) * 100)
-        : 0
-
-      // Tempo médio pipeline (assumido_em → encerrado_em) em dias
-      const comPipeline = ats.filter(a => a.assumido_em && a.encerrado_em)
-      let tempoMedioPipeline: number | null = null
-      if (comPipeline.length > 0) {
-        const totalDias = comPipeline.reduce((sum, a) => {
-          const diff = new Date(a.encerrado_em).getTime() - new Date(a.assumido_em).getTime()
-          return sum + diff / (1000 * 60 * 60 * 24)
-        }, 0)
-        tempoMedioPipeline = Math.round((totalDias / comPipeline.length) * 10) / 10
-      }
-
-      setMetricas({
-        semResposta: semRespostaResult.count || 0,
-        taxaConversao,
-        tempoMedioPipeline,
-      })
-
-      // Money cards
-      // Valor em pipeline
-      const { data: pipeline } = await supabase
+    const [atsRes, opsRes] = await Promise.all([
+      supabase
         .from('atendimentos')
-        .select('valor_entrada')
-        .eq('estado_painel', 'em_atendimento')
-      const valorPipeline = (pipeline || []).reduce((s, a) => s + (parseFloat(a.valor_entrada) || 0), 0)
+        .select('id, created_at, estado_painel, status_negocio, prazo_proxima_acao, owner_id, valor_entrada, valor_contrato, estado_valor, status_pagamento, encerrado_em, lead_id, leads(ultima_msg_em, ultima_msg_de, created_at, nome)')
+        .in('estado_painel', ['triagem', 'em_atendimento', 'cliente', 'encerrado']),
+      supabase.from('operadores').select('id, nome'),
+    ])
 
-      // Receita mês (pagos este mês)
-      const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString()
-      const { data: receitaMes } = await supabase
-        .from('atendimentos')
-        .select('valor_entrada')
-        .eq('status_pagamento', 'pago')
-        .gte('encerrado_em', inicioMes)
-      const valorReceitaMes = (receitaMes || []).reduce((s, a) => s + (parseFloat(a.valor_entrada) || 0), 0)
-
-      // Valor perdido
-      const { data: perdidos } = await supabase
-        .from('atendimentos')
-        .select('valor_entrada')
-        .eq('estado_painel', 'encerrado')
-      const valorPerdido = (perdidos || []).reduce((s, a) => s + (parseFloat(a.valor_entrada) || 0), 0)
-
-      setValores({ valorPipeline, valorReceitaMes, valorPerdido })
+    setAtendimentos((atsRes.data || []) as AtendimentoRow[])
+    setOperadores((opsRes.data || []).map((op: any) => ({ id: op.id, nome: op.nome || 'Operador' })))
+    setLoading(false)
   }, [])
 
-  // Initial load
   useEffect(() => { load() }, [load])
-
-  // Auto-refresh every 30s
   useEffect(() => {
     const timer = setInterval(load, 30000)
     return () => clearInterval(timer)
   }, [load])
 
-  const row1 = [
-    { label: 'Entradas recebidas', value: counters.leadsHoje, icon: MessageSquare, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Decisões em execução', value: counters.emAtendimento, icon: Users, color: 'text-orange-600', bg: 'bg-orange-50' },
-    { label: 'Estados ativos', value: counters.clientesAtivos, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50' },
-    { label: 'Decisões encerradas', value: counters.encerrados, icon: Archive, color: 'text-gray-600', bg: 'bg-gray-50' },
-  ]
+  // ── Derive all contexts using the decision engine ──
+  const activeAts = useMemo(() =>
+    atendimentos.filter(a => a.estado_painel === 'triagem' || a.estado_painel === 'em_atendimento'),
+  [atendimentos])
 
-  const row2 = [
-    { label: 'Decisões atrasadas', value: metricas.semResposta, icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50' },
-    { label: 'Eficiência de decisão', value: `${metricas.taxaConversao}%`, icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Latência de decisão', value: metricas.tempoMedioPipeline !== null ? `${metricas.tempoMedioPipeline}d` : '—', icon: Clock, color: 'text-purple-600', bg: 'bg-purple-50' },
-  ]
+  const contexts = useMemo(() =>
+    activeAts.map(at => {
+      const lead = at.leads?.[0] ?? null
+      return {
+        at,
+        ctx: getDecisionContext({
+          ultima_msg_em: lead?.ultima_msg_em ?? null,
+          ultima_msg_de: lead?.ultima_msg_de ?? null,
+          created_at: lead?.created_at ?? at.created_at,
+          estado_painel: at.estado_painel,
+          status_negocio: at.status_negocio,
+          prazo_proxima_acao: at.prazo_proxima_acao,
+        }),
+      }
+    }),
+  [activeAts])
 
-  const fmtMoney = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`
+  // ── Metrics derived from contexts ──
+  const criticalCount = useMemo(() => contexts.filter(c => c.ctx.isCritical).length, [contexts])
+  const staleCount = useMemo(() => contexts.filter(c => c.ctx.isStale).length, [contexts])
 
-  const row3 = [
-    { label: 'Receita em decisão', value: fmtMoney(valores.valorPipeline), icon: DollarSign, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Receita realizada', value: fmtMoney(valores.valorReceitaMes), icon: TrendingUp, color: 'text-green-600', bg: 'bg-green-50' },
-    { label: 'Receita perdida por atraso', value: fmtMoney(valores.valorPerdido), icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50' },
-  ]
+  // Workload per operator
+  const workload = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const at of activeAts) {
+      if (at.owner_id) map.set(at.owner_id, (map.get(at.owner_id) || 0) + 1)
+    }
+    return Array.from(map.entries())
+      .map(([id, count]) => ({ id, nome: operadores.find(o => o.id === id)?.nome || 'Operador', count }))
+      .sort((a, b) => b.count - a.count)
+  }, [activeAts, operadores])
+
+  // Top bottleneck (most common nextAction)
+  const bottleneck = useMemo((): { action: string; count: number } | null => {
+    const actionMap = new Map<string, number>()
+    for (const c of contexts) {
+      if (c.ctx.nextAction) actionMap.set(c.ctx.nextAction, (actionMap.get(c.ctx.nextAction) || 0) + 1)
+    }
+    let top: { action: string; count: number } | null = null
+    actionMap.forEach((count, action) => {
+      if (!top || count > top.count) top = { action, count }
+    })
+    return top
+  }, [contexts])
+
+  // Financial metrics
+  const financeiro = useMemo(() => {
+    const emExecucao = atendimentos.filter(a => a.estado_painel === 'em_atendimento')
+    const clientes = atendimentos.filter(a => a.estado_painel === 'cliente')
+    const encerrados = atendimentos.filter(a => a.estado_painel === 'encerrado')
+
+    const valorPipeline = emExecucao.reduce((s, a) => s + (Number(a.valor_contrato) || 0), 0)
+    const valorRealizado = clientes.reduce((s, a) => s + (Number(a.valor_contrato) || 0), 0)
+    const valorPerdido = encerrados.reduce((s, a) => s + (Number(a.valor_entrada) || 0), 0)
+
+    const taxaConversao = clientes.length + encerrados.length > 0
+      ? Math.round((clientes.length / (clientes.length + encerrados.length)) * 100)
+      : 0
+
+    return { valorPipeline, valorRealizado, valorPerdido, taxaConversao, clientesAtivos: clientes.length, encerradosTotal: encerrados.length }
+  }, [atendimentos])
+
+  // Counters
+  const totalAtivos = activeAts.length
+
+  if (loading) {
+    return (
+      <div className="p-8 flex items-center justify-center h-full">
+        <p className="text-sm text-gray-400">Carregando...</p>
+      </div>
+    )
+  }
+
+  const fmtMoney = (v: number) => v > 0 ? `R$ ${v.toLocaleString('pt-BR')}` : '—'
 
   return (
-    <div className="p-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Centro de Decisão Operacional</h1>
-
-      {/* Row 1: Contadores */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-        {row1.map(card => (
-          <div key={card.label} className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
-            <div className={`p-2 rounded-lg w-fit ${card.bg} mb-3`}>
-              <card.icon size={20} className={card.color} />
-            </div>
-            <p className="text-3xl font-black text-gray-900">{card.value}</p>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mt-1">{card.label}</p>
-          </div>
-        ))}
+    <div className="p-8 space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Centro de Decisão Operacional</h1>
+        <p className="text-sm text-gray-400 mt-1">{totalAtivos} decisões ativas • Atualiza a cada 30s</p>
       </div>
 
-      {/* Row 2: Métricas de produtividade */}
+      {/* ═══ ROW 1: Ação imediata (decision cards) ═══ */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Critical */}
+        <div className={cn("rounded-xl p-5 border", criticalCount > 0 ? "bg-red-50 border-red-200" : "bg-white border-gray-100")}>
+          <p className={cn("text-3xl font-black", criticalCount > 0 ? "text-red-700" : "text-gray-300")}>{criticalCount}</p>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mt-1">Casos críticos</p>
+          {criticalCount > 0 && <p className="text-[10px] text-red-500 mt-1">Ação imediata necessária</p>}
+        </div>
+
+        {/* Stale */}
+        <div className={cn("rounded-xl p-5 border", staleCount > 0 ? "bg-yellow-50 border-yellow-200" : "bg-white border-gray-100")}>
+          <p className={cn("text-3xl font-black", staleCount > 0 ? "text-yellow-700" : "text-gray-300")}>{staleCount}</p>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mt-1">Casos parados</p>
+          {staleCount > 0 && <p className="text-[10px] text-yellow-600 mt-1">Sem ação há 24h+</p>}
+        </div>
+
+        {/* Total active */}
+        <div className="bg-white rounded-xl p-5 border border-gray-100">
+          <p className="text-3xl font-black text-blue-700">{totalAtivos}</p>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mt-1">Decisões ativas</p>
+          <p className="text-[10px] text-gray-400 mt-1">Triagem + Execução</p>
+        </div>
+
+        {/* Conversion rate */}
+        <div className="bg-white rounded-xl p-5 border border-gray-100">
+          <p className="text-3xl font-black text-green-700">{financeiro.taxaConversao}%</p>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mt-1">Eficiência de decisão</p>
+          <p className="text-[10px] text-gray-400 mt-1">{financeiro.clientesAtivos} clientes / {financeiro.clientesAtivos + financeiro.encerradosTotal} total</p>
+        </div>
+      </div>
+
+      {/* ═══ ROW 2: Bottleneck + Workload ═══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Bottleneck */}
+        <div className="bg-white rounded-xl p-5 border border-gray-100">
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Principal gargalo</p>
+          {bottleneck ? (
+            <div className="flex items-center gap-3">
+              <span className="text-2xl font-black text-orange-600">{bottleneck.count}</span>
+              <div>
+                <p className="text-sm font-bold text-gray-900">{bottleneck.action}</p>
+                <p className="text-[10px] text-gray-400">casos aguardando esta ação</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-300">Nenhum gargalo identificado</p>
+          )}
+        </div>
+
+        {/* Workload distribution */}
+        <div className="bg-white rounded-xl p-5 border border-gray-100">
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Carga por operador</p>
+          {workload.length > 0 ? (
+            <div className="space-y-2">
+              {workload.map(op => {
+                const level = op.count <= 3 ? 'low' : op.count <= 7 ? 'medium' : 'high'
+                const barWidth = Math.min(100, (op.count / (workload[0]?.count || 1)) * 100)
+                return (
+                  <div key={op.id} className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-gray-700 w-24 truncate">{op.nome}</span>
+                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={cn("h-full rounded-full transition-all",
+                          level === 'low' ? 'bg-green-400' : level === 'medium' ? 'bg-yellow-400' : 'bg-red-400'
+                        )}
+                        style={{ width: `${barWidth}%` }}
+                      />
+                    </div>
+                    <span className={cn("text-xs font-black w-6 text-right",
+                      level === 'low' ? 'text-green-600' : level === 'medium' ? 'text-yellow-600' : 'text-red-600'
+                    )}>{op.count}</span>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-300">Nenhum operador com casos</p>
+          )}
+        </div>
+      </div>
+
+      {/* ═══ ROW 3: Financeiro ═══ */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {row2.map(card => (
-          <div key={card.label} className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
-            <div className={`p-2 rounded-lg w-fit ${card.bg} mb-3`}>
-              <card.icon size={20} className={card.color} />
-            </div>
-            <p className="text-3xl font-black text-gray-900">{card.value}</p>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mt-1">{card.label}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Row 3: Valor / Receita */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-        {row3.map(card => (
-          <div key={card.label} className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
-            <div className={`p-2 rounded-lg w-fit ${card.bg} mb-3`}>
-              <card.icon size={20} className={card.color} />
-            </div>
-            <p className="text-3xl font-black text-gray-900">{card.value}</p>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mt-1">{card.label}</p>
-          </div>
-        ))}
+        <div className="bg-white rounded-xl p-5 border border-gray-100">
+          <p className="text-3xl font-black text-blue-700">{fmtMoney(financeiro.valorPipeline)}</p>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mt-1">Receita em decisão</p>
+          <p className="text-[10px] text-gray-400 mt-1">Estimado (em execução)</p>
+        </div>
+        <div className="bg-white rounded-xl p-5 border border-gray-100">
+          <p className="text-3xl font-black text-green-700">{fmtMoney(financeiro.valorRealizado)}</p>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mt-1">Receita realizada</p>
+          <p className="text-[10px] text-gray-400 mt-1">Clientes ativos</p>
+        </div>
+        <div className="bg-white rounded-xl p-5 border border-gray-100">
+          <p className={cn("text-3xl font-black", financeiro.valorPerdido > 0 ? "text-red-600" : "text-gray-300")}>{fmtMoney(financeiro.valorPerdido)}</p>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mt-1">Receita perdida</p>
+          <p className="text-[10px] text-gray-400 mt-1">Casos encerrados</p>
+        </div>
       </div>
     </div>
   )
