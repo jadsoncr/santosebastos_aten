@@ -234,11 +234,11 @@ export default function EncerradosPage() {
       <div className="p-6 border-b bg-white">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Encerrados</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Decisões encerradas</h1>
             <p className="text-sm text-gray-400 mt-1">
-              {items.length} casos encerrados
+              {items.length} decisões finalizadas
               {reengajadosCount > 0 && (
-                <span className="ml-2 text-blue-500 font-bold">{reengajadosCount} reengajados</span>
+                <span className="ml-2 text-blue-500 font-bold">{reengajadosCount} reativadas</span>
               )}
             </p>
           </div>
@@ -250,7 +250,7 @@ export default function EncerradosPage() {
         {/* Valor perdido card */}
         {valorPerdidoTotal > 0 && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex justify-between items-center">
-            <span className="text-sm font-bold text-red-700">Valor perdido total</span>
+            <span className="text-sm font-bold text-red-700">Receita perdida</span>
             <span className="text-xl font-black text-red-700">R$ {valorPerdidoTotal.toLocaleString('pt-BR')}</span>
           </div>
         )}
@@ -309,12 +309,12 @@ export default function EncerradosPage() {
               disabled={loadingId === item.id}
               className="px-4 py-2 text-xs font-bold text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-40"
             >
-              {loadingId === item.id ? '...' : 'Reengajar'}
+              {loadingId === item.id ? '...' : 'Reativar decisão'}
             </button>
           </div>
         ))}
         {displayItems.length === 0 && (
-          <p className="text-center text-sm text-gray-400 py-8">Nenhum caso encerrado</p>
+          <p className="text-center text-sm text-gray-400 py-8">Nenhuma decisão encerrada</p>
         )}
       </div>
     </div>

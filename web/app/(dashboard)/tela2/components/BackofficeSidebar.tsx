@@ -315,7 +315,7 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
                 ? 'bg-yellow-50 text-yellow-700'
                 : 'bg-blue-50 text-blue-700'
             )}>
-              {getResponsavel(item.status_negocio ?? null, item.ultima_msg_de ?? null) === 'cliente' ? '⏳ Cliente' : '👉 Ação'}
+              {getResponsavel(item.status_negocio ?? null, item.ultima_msg_de ?? null) === 'cliente' ? '⏳ Resposta externa' : '👉 Decisão ativa'}
             </span>
             {item.prazo_proxima_acao && (
               <span className={cn(
@@ -364,7 +364,7 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
                 ? 'bg-blue-100 text-blue-600'
                 : 'bg-green-100 text-green-600'
             )}>
-              {item.estadoPainel === 'em_atendimento' ? 'Atendendo' : 'Cliente'}
+              {item.estadoPainel === 'em_atendimento' ? 'Em execução' : 'Estado ativo'}
             </span>
           </div>
         </div>
@@ -375,8 +375,8 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
   return (
     <div className="w-80 h-full bg-[#F1F3F6] flex flex-col border-r border-[#E6E8EC]/20">
       <div className="pt-6 px-4 pb-4 border-b border-[#E6E8EC]/20">
-        <h2 className="text-xl font-bold text-gray-900 tracking-tight">Backoffice</h2>
-        <p className="text-xs text-gray-400 mt-1">{prioritizedCases.length} casos ativos</p>
+        <h2 className="text-xl font-bold text-gray-900 tracking-tight">Execução</h2>
+        <p className="text-xs text-gray-400 mt-1">{prioritizedCases.length} decisões em execução</p>
       </div>
       <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1 scrollbar-hide">
         {/* Critical banner — clickable toggle filter */}
@@ -390,14 +390,14 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
             }`}
           >
             <p className={`text-xs font-bold ${filterCriticalOnly ? 'text-white' : 'text-red-700'}`}>
-              🔴 {criticalCount} {criticalCount === 1 ? 'caso precisa' : 'casos precisam'} de atenção
-              {filterCriticalOnly && <span className="ml-2 opacity-75">✕ ver todos</span>}
+              🔴 {criticalCount} {criticalCount === 1 ? 'decisão precisa' : 'decisões precisam'} de atenção
+              {filterCriticalOnly && <span className="ml-2 opacity-75">✕ ver todas</span>}
             </p>
           </button>
         )}
 
         {prioritizedCases.length === 0 && (
-          <p className="px-3 py-4 text-xs text-gray-400 text-center">Nenhum caso ativo</p>
+          <p className="px-3 py-4 text-xs text-gray-400 text-center">Nenhuma decisão em execução</p>
         )}
 
         {/* Render in two sections: critical, separator, rest */}

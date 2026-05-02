@@ -1,5 +1,5 @@
 /**
- * copy.ts — Mapeamento centralizado de terminologia do BRO Resolve v1.1
+ * copy.ts — Mapeamento centralizado de terminologia do TORIS
  *
  * Todas as strings da interface passam por este mapeamento.
  * Facilita manutenção, i18n futuro e consistência visual.
@@ -10,22 +10,15 @@
 export const COPY = {
   // ── Sidebar principal ──────────────────────────────────────
   sidebar: {
-    titulo: 'BRO Resolve',
-    captacao: 'Central de Relacionamento',
-    carteira: 'BackOffice',
-    financeiro: 'Gestão Financeira',
+    titulo: 'TORIS',
+    captacao: 'Entrada',
+    carteira: 'Execução',
+    financeiro: 'Receita',
     backoffice: 'Configurações',
   },
 
   // ── ConversasSidebar — seções ──────────────────────────────
   conversas: {
-    operacaoAtiva: 'Operação Ativa',
-    captacao: 'Captação',
-    emAtendimento: 'Em Atendimento',
-    aguardandoRetorno: 'Aguardando Retorno',
-    nenhumCaptacao: 'Nenhum prospecto na captação',
-    nenhumAtendimento: 'Nenhum em atendimento',
-    nenhumAguardando: 'Nenhum aguardando retorno',
   },
 
   // ── CardBotTree — badges ───────────────────────────────────
@@ -41,7 +34,7 @@ export const COPY = {
     automacaoAtiva: 'Automação Ativa',
     notaInterna: 'Nota interna',
     mensagem: 'Mensagem',
-    selecioneConversa: 'Selecione uma conversa',
+    selecioneConversa: 'Selecione uma entrada',
     delegar: 'DELEGAR',
     aguardando: 'AGUARDANDO',
     encerrar: 'ENCERRAR',
@@ -49,14 +42,14 @@ export const COPY = {
 
   // ── BlocoQualificacao ──────────────────────────────────────
   qualificacao: {
-    dossieEstrategico: 'Dossiê Estratégico',
+    dossieEstrategico: 'Contexto acumulado',
     salvarNota: 'Salvar nota',
     editarTelefone: 'Editar telefone',
     vincularIdentidade: 'Vincular a Identidade Existente',
     contatoWhatsApp: 'Contato via WhatsApp',
     telefoneIndisponivel: 'Telefone não disponível',
-    converter: 'CONVERTER',
-    naoFechou: 'NÃO FECHOU',
+    converter: 'EXECUTAR DECISÃO',
+    naoFechou: 'ENCERRAR DECISÃO',
     encerrarEnfileirar: 'ENCERRAR E ENFILEIRAR',
     acompanhamento: 'IR PARA ACOMPANHAMENTO',
     arquivar: 'Arquivar interação',
@@ -72,13 +65,6 @@ export const COPY = {
     nenhumaOpcao: 'Nenhuma opção disponível',
   },
 
-  // ── ScoreCircle — labels de propensão ──────────────────────
-  score: {
-    alta: 'Alta Propensão',
-    media: 'Média Propensão',
-    baixa: 'Baixa Propensão',
-  },
-
   // ── Indicadores (substituem emojis na sidebar) ─────────────
   indicadores: {
     reativado: 'R',
@@ -87,37 +73,9 @@ export const COPY = {
     sla: 'SLA',
   },
 
-  // ── Pipeline stages ────────────────────────────────────────
-  pipeline: {
-    ENTRADA: 'Captação',
-    QUALIFICADO: 'Qualificação',
-    EM_ATENDIMENTO: 'Em Atendimento',
-    AGENDAMENTO: 'Agendamento',
-    DEVOLUTIVA: 'Devolutiva',
-    PAGAMENTO_PENDENTE: 'Pagamento Pendente',
-    CARTEIRA_ATIVA: 'Carteira Ativa',
-    FINALIZADO: 'Finalizado',
-  },
-
-  // ── Botoeira de Jornada ──────────────────────────────────────
-  botoeira: {
-    agendarReuniao: 'Agendar Reunião',
-    solicitarDados: 'Solicitar Dados',
-    enviarProposta: 'Enviar Proposta',
-    gerarContrato: 'Gerar Contrato',
-  },
-
-  // ── Ações rápidas (timeline) ───────────────────────────────
-  acoes: {
-    agendarReuniao: 'Agendar Reunião',
-    enviarProposta: 'Enviar Proposta',
-    pedirDocumentos: 'Solicitar Documentos',
-    avancarPipeline: 'Avançar Pipeline',
-  },
-
   // ── Busca e filtros ────────────────────────────────────────
   busca: {
-    placeholder: 'Pesquisar ou começar uma nova conversa',
+    placeholder: 'Buscar entrada...',
     nenhumResultado: 'Nenhum contato encontrado.',
     adicionarNovo: 'Deseja adicionar?',
     novoContato: 'Novo Contato',

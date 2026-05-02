@@ -530,9 +530,9 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
     <div className="w-80 h-full bg-[#F1F3F6] flex flex-col border-r border-[#E6E8EC]/20">
       {/* Header with tabs and search */}
       <div className="pt-6 px-4 pb-4 border-b border-[#E6E8EC]/20 flex flex-col">
-        <h2 className="text-xl font-bold text-gray-900 mb-3 tracking-tight">Conversas</h2>
+        <h2 className="text-xl font-bold text-gray-900 mb-3 tracking-tight">Entradas</h2>
         {(counters.waiting + counters.noResponse) > 0 && (
-          <p className="text-[11px] text-gray-400 mb-2">{counters.waiting + counters.noResponse} leads aguardando resposta</p>
+          <p className="text-[11px] text-gray-400 mb-2">{counters.waiting + counters.noResponse} decisões pendentes</p>
         )}
 
         {/* Underline tabs */}
@@ -545,7 +545,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
                 : 'text-[#9CA3AF] font-normal border-transparent hover:text-gray-500'
             }`}
           >
-            Todos {counters.total}
+            Todas entradas {counters.total}
           </button>
           <button
             onClick={() => handlePillChange('aguardando')}
@@ -555,7 +555,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
                 : 'text-[#9CA3AF] font-normal border-transparent hover:text-gray-500'
             }`}
           >
-            Aguardando {counters.waiting}
+            Sem decisão {counters.waiting}
           </button>
           <button
             onClick={() => handlePillChange('sem_retorno')}
@@ -565,7 +565,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
                 : 'text-[#9CA3AF] font-normal border-transparent hover:text-gray-500'
             }`}
           >
-            Sem retorno {counters.noResponse}
+            Sem avanço {counters.noResponse}
           </button>
         </div>
 
@@ -600,7 +600,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
               type="text"
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
-              placeholder="Buscar cliente..."
+              placeholder="Buscar entrada..."
               className="w-full pl-9 pr-4 py-2.5 bg-[#F7F8FA] border border-[#E6E8EC]/10 rounded-xl text-xs focus:ring-1 focus:ring-blue-100 outline-none placeholder:text-gray-300 shadow-sm"
             />
           </div>
@@ -629,8 +629,8 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
             }`}
           >
             <p className={`text-xs font-bold ${filterCriticalOnly ? 'text-white' : 'text-red-700'}`}>
-              🔴 {criticalCount} lead{criticalCount > 1 ? 's' : ''} aguardando há mais de 30min
-              {filterCriticalOnly && <span className="ml-2 opacity-75">✕ ver todos</span>}
+              🔴 {criticalCount} lead{criticalCount > 1 ? 's' : ''} decisão atrasada
+              {filterCriticalOnly && <span className="ml-2 opacity-75">✕ ver todas</span>}
             </p>
           </button>
         )}
@@ -651,7 +651,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
         )}
 
         {!isSearching && prioritizedLeads.length === 0 && searchQuery.trim().length === 0 && (
-          <p className="px-3 py-4 text-xs text-gray-400 text-center">Nenhum prospecto ativo</p>
+          <p className="px-3 py-4 text-xs text-gray-400 text-center">Nenhuma entrada pendente</p>
         )}
 
         {/* Render in two sections: critical leads, separator, then rest */}

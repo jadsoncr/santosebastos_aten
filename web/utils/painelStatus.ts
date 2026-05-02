@@ -30,15 +30,15 @@ export function getCorPainel(estadoPainel: EstadoPainel | null): string {
 export function getEstadoLabel(estadoPainel: EstadoPainel | null): string {
   switch (estadoPainel) {
     case 'em_atendimento':
-      return 'Em atendimento'
+      return 'Em execução'
     case 'cliente':
-      return 'Cliente ativo'
+      return 'Estado ativo'
     case 'encerrado':
-      return 'Encerrado'
+      return 'Decisão encerrada'
     case 'triagem':
     case null:
     default:
-      return 'Triagem'
+      return 'Entrada'
   }
 }
 

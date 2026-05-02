@@ -114,29 +114,29 @@ export default function CCOPage() {
   }, [load])
 
   const row1 = [
-    { label: 'Leads hoje', value: counters.leadsHoje, icon: MessageSquare, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Em atendimento', value: counters.emAtendimento, icon: Users, color: 'text-orange-600', bg: 'bg-orange-50' },
-    { label: 'Clientes', value: counters.clientesAtivos, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50' },
-    { label: 'Encerrados', value: counters.encerrados, icon: Archive, color: 'text-gray-600', bg: 'bg-gray-50' },
+    { label: 'Entradas recebidas', value: counters.leadsHoje, icon: MessageSquare, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Decisões em execução', value: counters.emAtendimento, icon: Users, color: 'text-orange-600', bg: 'bg-orange-50' },
+    { label: 'Estados ativos', value: counters.clientesAtivos, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50' },
+    { label: 'Decisões encerradas', value: counters.encerrados, icon: Archive, color: 'text-gray-600', bg: 'bg-gray-50' },
   ]
 
   const row2 = [
-    { label: 'Sem resposta (>30min)', value: metricas.semResposta, icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50' },
-    { label: 'Taxa conversão', value: `${metricas.taxaConversao}%`, icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Tempo médio pipeline', value: metricas.tempoMedioPipeline !== null ? `${metricas.tempoMedioPipeline}d` : '—', icon: Clock, color: 'text-purple-600', bg: 'bg-purple-50' },
+    { label: 'Decisões atrasadas', value: metricas.semResposta, icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50' },
+    { label: 'Eficiência de decisão', value: `${metricas.taxaConversao}%`, icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { label: 'Latência de decisão', value: metricas.tempoMedioPipeline !== null ? `${metricas.tempoMedioPipeline}d` : '—', icon: Clock, color: 'text-purple-600', bg: 'bg-purple-50' },
   ]
 
   const fmtMoney = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`
 
   const row3 = [
-    { label: 'Valor em pipeline', value: fmtMoney(valores.valorPipeline), icon: DollarSign, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Receita mês', value: fmtMoney(valores.valorReceitaMes), icon: TrendingUp, color: 'text-green-600', bg: 'bg-green-50' },
-    { label: 'Valor perdido', value: fmtMoney(valores.valorPerdido), icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50' },
+    { label: 'Receita em decisão', value: fmtMoney(valores.valorPipeline), icon: DollarSign, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Receita realizada', value: fmtMoney(valores.valorReceitaMes), icon: TrendingUp, color: 'text-green-600', bg: 'bg-green-50' },
+    { label: 'Receita perdida por atraso', value: fmtMoney(valores.valorPerdido), icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50' },
   ]
 
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">CCO — Centro de Comando Operacional</h1>
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Centro de Decisão Operacional</h1>
 
       {/* Row 1: Contadores */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">

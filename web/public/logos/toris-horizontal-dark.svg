@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 60" fill="none">
+  <!-- Curve icon -->
+  <path d="M8 15 C8 15, 22 45, 36 45 C50 45, 50 15, 64 15" stroke="#7D968C" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- TORIS text -->
+  <text x="82" y="40" font-family="Sora, sans-serif" font-size="28" font-weight="600" letter-spacing="6" fill="#1F2A2E">TORIS</text>
+</svg>

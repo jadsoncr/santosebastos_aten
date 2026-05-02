@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 70" fill="none">
+  <!-- Curve icon -->
+  <path d="M8 18 C8 18, 22 48, 36 48 C50 48, 50 18, 64 18" stroke="#7D968C" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- TORIS text -->
+  <text x="82" y="40" font-family="Sora, sans-serif" font-size="28" font-weight="600" letter-spacing="6" fill="#FFFFFF">TORIS</text>
+  <!-- Tagline -->
+  <text x="82" y="58" font-family="Sora, sans-serif" font-size="7" font-weight="400" letter-spacing="2" fill="rgba(255,255,255,0.4)">CONTINUIDADE QUE CONDUZ À DECISÃO</text>
+</svg>

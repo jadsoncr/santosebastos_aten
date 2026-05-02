@@ -244,7 +244,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         socket.emit('conversa_classificada', { lead_id: lead.id, status_negocio: treatment.status_negocio, destino: treatment.destino })
         socket.emit('estado_painel_changed', { identity_id: lead.identity_id, lead_id: lead.id, estado_painel: treatment.destino === 'backoffice' ? 'em_atendimento' : 'encerrado' })
       }
-      showToastMsg(treatment.destino === 'backoffice' ? 'Encaminhado para operação' : 'Atendimento encerrado')
+      showToastMsg(treatment.destino === 'backoffice' ? 'Decisão executada' : 'Decisão encerrada')
       ctx.refetch()
       onLeadClosed()
     } catch (err: any) { showToastMsg(err.message || 'Erro', 'error') }
@@ -291,7 +291,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         }
       }
 
-      showToastMsg(novoStatus === 'fechado' ? 'Cliente convertido' : novoStatus === 'perdido' ? 'Caso encerrado' : 'Status atualizado')
+      showToastMsg(novoStatus === 'fechado' ? 'Decisão concluída — receita' : novoStatus === 'perdido' ? 'Decisão encerrada' : 'Estado atualizado')
       ctx.refetch()
     } catch (err: any) { showToastMsg(err.message || 'Erro', 'error') }
     finally { setLoading(false) }
@@ -341,7 +341,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
       if (at) await supabase.from('status_transitions').insert({ atendimento_id: at.id, status_anterior: ctx.status_negocio || 'encerrado', status_novo: 'analise_viabilidade', operador_id: operadorId })
 
       if (socket) socket.emit('estado_painel_changed', { identity_id: lead.identity_id, lead_id: lead.id, estado_painel: 'em_atendimento' })
-      showToastMsg('Lead reengajado')
+      showToastMsg('Decisão reativada')
       ctx.refetch()
     } catch (err: any) { showToastMsg(err.message || 'Erro', 'error') }
     finally { setLoading(false) }
@@ -377,7 +377,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
       }).eq('identity_id', lead.identity_id)
 
       if (socket) socket.emit('estado_painel_changed', { identity_id: lead.identity_id, lead_id: lead.id, estado_painel: 'triagem' })
-      showToastMsg('Novo atendimento iniciado')
+      showToastMsg('Nova decisão iniciada')
       ctx.refetch()
     } catch (err: any) { showToastMsg(err.message || 'Erro', 'error') }
     finally { setLoading(false) }
@@ -420,7 +420,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         socket.emit('status_negocio_changed', { lead_id: lead.id, status_anterior: statusAnterior, status_novo: 'fechado' })
       }
 
-      showToastMsg('Cliente convertido')
+      showToastMsg('Decisão concluída — receita')
       setShowFechamentoModal(false)
       setValorContrato('')
       ctx.refetch()
@@ -434,7 +434,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
     setLoading(true)
     try {
       await supabase.from('atendimentos').update({ status_pagamento: 'pago' }).eq('identity_id', lead.identity_id)
-      showToastMsg('Pagamento confirmado')
+      showToastMsg('Receita confirmada')
       ctx.refetch()
     } catch (err: any) { showToastMsg(err.message || 'Erro', 'error') }
     finally { setLoading(false) }
@@ -456,7 +456,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         })
       }
 
-      showToastMsg('Caso assumido')
+      showToastMsg('Decisão assumida')
       ctx.refetch()
     } catch (err: any) { showToastMsg(err.message || 'Erro', 'error') }
     finally { setLoading(false) }
@@ -496,7 +496,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
           isOwner={isOwner}
           leadId={lead.id}
           operadorId={operadorId}
-          onDelegated={() => { showToastMsg('Lead delegado'); ctx.refetch() }}
+          onDelegated={() => { showToastMsg('Decisão delegada'); ctx.refetch() }}
         />
       )}
 
@@ -507,7 +507,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         {mode.identidade && (
           <div className="p-4 border-b space-y-3">
             <div className="flex items-center justify-between">
-              <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Identificação</div>
+              <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Contexto</div>
               <div className={cn("px-2 py-0.5 rounded-full text-[9px] font-black border", scoreVisual.bg)}>
                 <span className={scoreVisual.color}>{scoreVisual.icon} {lead.score}/10 {scoreVisual.label}</span>
               </div>
@@ -564,7 +564,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         {/* ═══ INTENÇÃO DO CLIENTE (triagem only) ═══ */}
         {mode.intencao && (
           <div className="p-4 border-b">
-            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">O que o cliente quer</div>
+            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Intenção identificada</div>
             <div className="text-sm font-semibold text-gray-900">{getIntencaoAtual(lead as any)}</div>
             <div className="text-xs text-gray-400 mt-1">{lead.canal_origem || 'WhatsApp'} • {lead.area_bot || lead.area || '—'}</div>
           </div>
@@ -573,7 +573,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         {/* ═══ CLASSIFICAÇÃO JURÍDICA (triagem only) ═══ */}
         {mode.classJuridica && (
           <div className="p-4 border-b space-y-3">
-            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Classificação jurídica</div>
+            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Tipo de decisão</div>
             <div>
               <label className="text-[10px] font-bold text-gray-600 uppercase block mb-1">Área do caso</label>
               <select value={areaId || ''} onChange={e => { setAreaId(e.target.value || null); setCategoriaId(null); setSubcategoriaId(null) }} disabled={!isOwner}
@@ -608,7 +608,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         {mode.dossie && (
           <div className="p-4 border-b space-y-2">
             <div className="flex items-center gap-2">
-              <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Dossiê</div>
+              <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Contexto acumulado</div>
               {notaSalva && <span className="text-[10px] text-green-500 animate-pulse">Salvo</span>}
             </div>
             <textarea value={observacao} onChange={e => setObservacao(e.target.value)} disabled={!isOwner}
@@ -631,7 +631,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         {/* ═══ TRATAMENTO (triagem only) ═══ */}
         {mode.tratamento && (
           <div className="p-4 border-b space-y-3">
-            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Tratamento</div>
+            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Ação definida</div>
             <div>
               <label className="text-[10px] font-bold text-gray-600 uppercase block mb-1">Tipo</label>
               <select value={tratamentoTipo} onChange={e => { setTratamentoTipo(e.target.value); setTratamentoDetalhe('') }} disabled={!isOwner}
@@ -667,7 +667,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         {/* ═══ STATUS ATUAL (em_atendimento) ═══ */}
         {mode.statusAtual && (
           <div className="p-4 border-b space-y-3">
-            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Status atual</div>
+            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Estado da decisão</div>
             {(() => {
               const prazoVencido = ctx.prazo_proxima_acao && new Date(ctx.prazo_proxima_acao).getTime() < Date.now()
               const nextAction = getNextActionLabel(ctx.status_negocio)
@@ -689,7 +689,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
                         ? "bg-yellow-100 text-yellow-700"
                         : "bg-blue-100 text-blue-700"
                     )}>
-                      {isClientWaiting ? '⏳ Aguardando cliente' : '👉 Sua ação'}
+                      {isClientWaiting ? '⏳ Aguardando resposta externa' : '👉 Decisão ativa'}
                     </span>
                   </div>
                   {ctx.prazo_proxima_acao && (
@@ -711,7 +711,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
                   )}
                   {nextAction && isClientWaiting && (
                     <div className="text-xs text-gray-500 font-medium mt-1">
-                      Próximo quando cliente responder: {nextAction}
+                      Próxima decisão após resposta: {nextAction}
                     </div>
                   )}
                 </div>
@@ -723,7 +723,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         {/* ═══ BOTÕES DE AÇÃO (em_atendimento) ═══ */}
         {mode.botoesAcao && (
           <div className="p-4 border-b space-y-2">
-            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Próxima etapa</div>
+            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Próxima decisão</div>
 
             {/* Dynamic next step button from ACTION_MAP */}
             {(() => {
@@ -742,7 +742,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
                   {resolvedStatus && ['envio_contrato', 'esclarecimento_duvidas', 'recebimento_documentos', 'cadastro_interno', 'confeccao_inicial', 'distribuicao'].includes(resolvedStatus) && (
                     <button onClick={() => canSeeFinanceiro ? setShowFechamentoModal(true) : showToastMsg('Apenas o responsável pode fechar contratos', 'error')} disabled={loading}
                       className="w-full py-2.5 rounded-lg text-sm font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-40">
-                      Fechar contrato
+                      Executar fechamento
                     </button>
                   )}
                 </>
@@ -752,12 +752,12 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
             {/* Perdido — always available in em_atendimento */}
             <button onClick={() => setShowMotivoPopup(true)}
               className="w-full py-2.5 rounded-lg text-sm font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
-              Perdido
+              Encerrar decisão
             </button>
 
             {/* Quick jump — operator can go to any stage */}
             <details className="mt-2">
-              <summary className="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">Outras ações</summary>
+              <summary className="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">Alterar estado</summary>
               <div className="mt-2 space-y-1">
                 {Object.entries(ACTION_MAP).map(([statusKey, cfg]) => {
                   const resolvedCurrent = ctx.status_negocio ? resolveStatus(ctx.status_negocio) : null
@@ -879,11 +879,11 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
                   isBackoffice ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-800 text-white hover:bg-gray-900',
                   !podeConfirmar && 'opacity-40 cursor-not-allowed'
                 )}>
-                {loading ? 'Processando...' : 'Confirmar encaminhamento'}
+                {loading ? 'Processando...' : 'Executar decisão'}
               </button>
             ) : (
               <button disabled className="w-full py-3 rounded-xl font-semibold text-sm bg-gray-100 text-gray-400 cursor-not-allowed">
-                Selecione o tratamento
+                Defina a ação
               </button>
             )}
             {treatment && isBackoffice && (

@@ -24,24 +24,24 @@ describe('getCorPainel', () => {
 })
 
 describe('getEstadoLabel', () => {
-  it('returns Triagem for null', () => {
-    expect(getEstadoLabel(null)).toBe('Triagem')
+  it('returns Entrada for null', () => {
+    expect(getEstadoLabel(null)).toBe('Entrada')
   })
 
-  it('returns Triagem for triagem', () => {
-    expect(getEstadoLabel('triagem')).toBe('Triagem')
+  it('returns Entrada for triagem', () => {
+    expect(getEstadoLabel('triagem')).toBe('Entrada')
   })
 
-  it('returns Em atendimento for em_atendimento', () => {
-    expect(getEstadoLabel('em_atendimento')).toBe('Em atendimento')
+  it('returns Em execução for em_atendimento', () => {
+    expect(getEstadoLabel('em_atendimento')).toBe('Em execução')
   })
 
-  it('returns Cliente ativo for cliente', () => {
-    expect(getEstadoLabel('cliente')).toBe('Cliente ativo')
+  it('returns Estado ativo for cliente', () => {
+    expect(getEstadoLabel('cliente')).toBe('Estado ativo')
   })
 
-  it('returns Encerrado for encerrado', () => {
-    expect(getEstadoLabel('encerrado')).toBe('Encerrado')
+  it('returns Decisão encerrada for encerrado', () => {
+    expect(getEstadoLabel('encerrado')).toBe('Decisão encerrada')
   })
 })
 

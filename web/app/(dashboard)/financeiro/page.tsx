@@ -162,7 +162,7 @@ export default function FinanceiroPage() {
       <div className="max-w-5xl mx-auto space-y-8">
         {/* Header + Month Selector */}
         <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-black text-gray-900">Financeiro</h2>
+          <h2 className="text-2xl font-black text-gray-900">Receita</h2>
           <div className="flex items-center gap-3">
             <button onClick={() => setMesOffset(o => o - 1)} className="p-2 rounded-lg hover:bg-gray-200 transition"><ChevronLeft size={20} /></button>
             <span className="text-sm font-bold text-gray-700 min-w-[100px] text-center">{mesLabel()}</span>
@@ -180,11 +180,11 @@ export default function FinanceiroPage() {
             {/* KPI Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Card className="p-5">
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Entrada Recebida</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Receita Realizada</p>
                 <p className="text-xl font-black text-green-600">{fmt(receitaEntrada)}</p>
               </Card>
               <Card className="p-5">
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Entrada Pendente</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Receita em Decisão</p>
                 <p className="text-xl font-black text-orange-500">{fmt(receitaPendente)}</p>
               </Card>
               <Card className="p-5">
@@ -192,7 +192,7 @@ export default function FinanceiroPage() {
                 <p className="text-xl font-black text-red-500">{fmt(custosTotal)}</p>
               </Card>
               <Card className="p-5">
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Resultado</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Resultado Operacional</p>
                 <p className={`text-xl font-black ${resultado >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(resultado)}</p>
               </Card>
             </div>
@@ -200,7 +200,7 @@ export default function FinanceiroPage() {
             {/* Client list (open months only) */}
             {!isFechado && clientes.length > 0 && (
               <section className="space-y-3">
-                <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.15em]">Atendimentos do mês</h3>
+                <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.15em]">Decisões do mês</h3>
                 <Card>
                   <table className="w-full text-sm">
                     <thead>
@@ -285,7 +285,7 @@ export default function FinanceiroPage() {
                 <button onClick={fecharMes} disabled={fechando}
                   className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition disabled:opacity-50">
                   <Lock size={16} />
-                  {fechando ? 'Fechando...' : 'Fechar mês'}
+                  {fechando ? 'Fechando...' : 'Consolidar mês'}
                 </button>
               </div>
             )}

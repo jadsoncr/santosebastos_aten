@@ -963,16 +963,16 @@ export default function BlocoQualificacao({
       {/* Botoeira de Jornada — 4 action buttons (Change C) */}
       <div className="grid grid-cols-2 gap-2">
         <button onClick={() => setShowAgendarModal(true)} className="px-2 py-2 rounded-xl text-xs font-bold bg-white border border-[#E6E8EC]/20 text-gray-600 hover:bg-gray-50 shadow-sm transition-colors">
-          {COPY.botoeira.agendarReuniao}
+          Agendar Reunião
         </button>
         <button onClick={() => setShowSolicitarModal(true)} className="px-2 py-2 rounded-xl text-xs font-bold bg-white border border-[#E6E8EC]/20 text-gray-600 hover:bg-gray-50 shadow-sm transition-colors">
-          {COPY.botoeira.solicitarDados}
+          Solicitar Dados
         </button>
         <button onClick={() => setShowPropostaModal(true)} className="px-2 py-2 rounded-xl text-xs font-bold bg-white border border-[#E6E8EC]/20 text-gray-600 hover:bg-gray-50 shadow-sm transition-colors">
-          {COPY.botoeira.enviarProposta}
+          Enviar Proposta
         </button>
         <button onClick={() => setShowContratoConfirm(true)} className="px-2 py-2 rounded-xl text-xs font-bold bg-white border border-[#E6E8EC]/20 text-gray-600 hover:bg-gray-50 shadow-sm transition-colors">
-          {COPY.botoeira.gerarContrato}
+          Gerar Contrato
         </button>
       </div>
 

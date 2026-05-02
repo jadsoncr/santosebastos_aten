@@ -24,8 +24,8 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'BRO Resolve',
-  description: 'Painel operacional — Santos & Bastos Advogados',
+  title: 'TORIS',
+  description: 'Decision Operating System',
 }
 
 export default function RootLayout({

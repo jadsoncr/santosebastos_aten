@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
-import { MessageSquare, LayoutGrid, DollarSign, Archive, Settings, LogOut, Zap, BarChart3 } from 'lucide-react'
+import { MessageSquare, LayoutGrid, DollarSign, Archive, Settings, LogOut, BarChart3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { COPY } from '@/utils/copy'
 
@@ -12,11 +12,11 @@ interface SidebarProps {
 }
 
 const links = [
-  { href: '/cco', label: 'Painel', icon: BarChart3 },
-  { href: '/tela1', label: 'Classificação', icon: MessageSquare },
-  { href: '/tela2', label: 'Atendimento', icon: LayoutGrid },
-  { href: '/encerrados', label: 'Oportunidades', icon: Archive },
-  { href: '/financeiro', label: 'Financeiro', icon: DollarSign, ownerOnly: true },
+  { href: '/cco', label: 'Decisões', icon: BarChart3 },
+  { href: '/tela1', label: 'Entrada', icon: MessageSquare },
+  { href: '/tela2', label: 'Execução', icon: LayoutGrid },
+  { href: '/encerrados', label: 'Encerrados', icon: Archive },
+  { href: '/financeiro', label: 'Receita', icon: DollarSign, ownerOnly: true },
 ]
 
 export default function Sidebar({ role }: SidebarProps) {
@@ -26,10 +26,8 @@ export default function Sidebar({ role }: SidebarProps) {
     <aside className="w-20 lg:w-64 flex-shrink-0 flex flex-col bg-white border-r border-gray-100 z-50 transition-all">
       {/* Logo */}
       <div className="h-16 flex items-center justify-center lg:justify-start px-6 border-b border-gray-50">
-        <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-          <Zap size={20} className="text-white fill-white" />
-        </div>
-        <span className="ml-3 font-black text-xl text-gray-900 hidden lg:block tracking-tighter">BRO Resolve</span>
+        <img src="/logos/toris-icon-sage.svg" alt="TORIS" className="w-8 h-8" />
+        <span className="ml-3 hidden lg:block"><img src="/logos/toris-horizontal-dark.svg" alt="TORIS" className="h-5 hidden lg:block" /></span>
       </div>
 
       {/* Nav */}

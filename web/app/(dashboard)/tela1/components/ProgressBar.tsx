@@ -1,11 +1,20 @@
 'use client'
 
-import { COPY } from '@/utils/copy'
-
 const STAGES = [
   'ENTRADA', 'QUALIFICADO', 'EM_ATENDIMENTO', 'AGENDAMENTO',
   'DEVOLUTIVA', 'PAGAMENTO_PENDENTE', 'CARTEIRA_ATIVA', 'FINALIZADO'
 ] as const
+
+const PIPELINE_LABELS: Record<string, string> = {
+  ENTRADA: 'Captação',
+  QUALIFICADO: 'Qualificação',
+  EM_ATENDIMENTO: 'Em Atendimento',
+  AGENDAMENTO: 'Agendamento',
+  DEVOLUTIVA: 'Devolutiva',
+  PAGAMENTO_PENDENTE: 'Pagamento Pendente',
+  CARTEIRA_ATIVA: 'Carteira Ativa',
+  FINALIZADO: 'Finalizado',
+}
 
 type PipelineStage = typeof STAGES[number]
 
@@ -36,7 +45,7 @@ export default function ProgressBar({ currentStage }: ProgressBarProps) {
         })}
       </div>
       <p className="text-[10px] font-medium text-accent mt-1 text-center">
-        {COPY.pipeline[(currentStage || 'ENTRADA') as keyof typeof COPY.pipeline] || currentStage || 'Captação'}
+        {PIPELINE_LABELS[(currentStage || 'ENTRADA')] || currentStage || 'Captação'}
       </p>
     </div>
   )

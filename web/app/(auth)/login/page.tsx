@@ -35,8 +35,9 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-bg-primary px-4">
       <div className="w-full max-w-sm rounded-lg bg-bg-surface p-8 border border-border">
         <h1 className="mb-8 text-center font-display text-3xl font-bold text-text-primary">
-          BRO Resolve
+          TORIS
         </h1>
+        <p className="text-center text-sm text-text-muted -mt-6 mb-8">Sistema de decisão operacional</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
