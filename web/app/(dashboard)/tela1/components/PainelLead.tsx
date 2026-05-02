@@ -10,7 +10,7 @@ import { resolveTreatment, TREATMENT_TIPOS, TREATMENT_DETALHES, type TreatmentTi
 import { calcularPrazo, getPrazoLabel } from '@/utils/painelStatus'
 import { getIntencaoAtual } from '@/utils/getIntencaoAtual'
 import { getNextActionLabel } from '@/utils/nextAction'
-import { getResponsavel, resolveStatus, getEstadoValorBadge, getEstadoValorColor, getEstadoValorLabel, getPrereq } from '@/utils/journeyModel'
+import { getResponsavel, resolveStatus, getEstadoValorBadge, getEstadoValorColor, getEstadoValorLabel, getPrereq, getConfirmLabel } from '@/utils/journeyModel'
 import { getDecisionContext } from '@/utils/decisionContext'
 import { suggestClassification, findSegmentIdByName } from '@/utils/classificationSuggestion'
 import { getNextStep, ACTION_MAP } from '@/utils/businessStateMachine'
@@ -754,17 +754,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
                       <span className="font-medium">{getPrazoLabel(ctx.prazo_proxima_acao)}</span>
                     </div>
                   )}
-                  {/* Dominant CTA — next action highlighted */}
-                  {nextAction && !isClientWaiting && (
-                    <div className={cn(
-                      "text-sm font-black mt-1 px-3 py-2 rounded-lg text-center",
-                      prazoVencido
-                        ? "bg-red-600 text-white"
-                        : "bg-blue-600 text-white"
-                    )}>
-                      🔴 {nextAction}
-                    </div>
-                  )}
+                  {/* Info: what comes next when waiting for client */}
                   {nextAction && isClientWaiting && (
                     <div className="text-xs text-gray-500 font-medium mt-1">
                       Próxima decisão após resposta: {nextAction}
@@ -848,6 +838,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
               const resolvedStatus = ctx.status_negocio ? resolveStatus(ctx.status_negocio) : null
               const nextStep = resolvedStatus ? getNextStep(resolvedStatus as any) : null
               const prereq = resolvedStatus ? getPrereq(resolvedStatus) : null
+              const confirmLabel = resolvedStatus ? getConfirmLabel(resolvedStatus) : null
               const canAdvance = !prereq || prereqChecked
               return (
                 <>
@@ -870,7 +861,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
                         "w-full py-2.5 rounded-lg text-sm font-semibold transition-colors disabled:opacity-40",
                         canAdvance ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-gray-200 text-gray-400 cursor-not-allowed"
                       )}>
-                      {nextStep.label}
+                      {confirmLabel || nextStep.label}
                     </button>
                   )}
 
@@ -891,9 +882,10 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
               Encerrar decisão
             </button>
 
-            {/* Quick jump — operator can go to any stage */}
+            {/* Quick jump — owner only (exception handling) */}
+            {role === 'owner' && (
             <details className="mt-2">
-              <summary className="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">Alterar estado</summary>
+              <summary className="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">Alterar estado (admin)</summary>
               <div className="mt-2 space-y-1">
                 {Object.entries(ACTION_MAP).map(([statusKey, cfg]) => {
                   const resolvedCurrent = ctx.status_negocio ? resolveStatus(ctx.status_negocio) : null
@@ -906,6 +898,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
                 })}
               </div>
             </details>
+            )}
           </div>
         )}
 

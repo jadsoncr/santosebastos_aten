@@ -24,6 +24,8 @@ export interface JourneyStage {
   terminal: boolean
   /** Próxima ação imperativa para o operador */
   proximaAcao: string | null
+  /** Texto do botão de confirmação (verbo no passado — "o que acabei de fazer") */
+  confirmLabel: string | null
   /** Responsável padrão da etapa */
   responsavel_default: 'interno' | 'cliente'
   /** Pré-requisito para avançar PARA a próxima etapa (confirmação antes de sair desta) */
@@ -38,59 +40,59 @@ export interface JourneyStage {
 export const JOURNEY_STAGES: Record<string, JourneyStage> = {
   analise_viabilidade: {
     id: 'analise_viabilidade', label: 'Análise de Viabilidade', descricao: 'Avaliar viabilidade jurídica do caso',
-    slaDias: 1, ordem: 0, terminal: false, proximaAcao: 'Analisar viabilidade', responsavel_default: 'interno',
+    slaDias: 1, ordem: 0, terminal: false, proximaAcao: 'Analisar viabilidade', confirmLabel: 'Viabilidade analisada ✓', responsavel_default: 'interno',
   },
   retorno_cliente: {
     id: 'retorno_cliente', label: 'Retorno ao Cliente', descricao: 'Retornar contato ao cliente com parecer',
-    slaDias: 1, ordem: 1, terminal: false, proximaAcao: 'Retornar ao cliente', responsavel_default: 'interno',
+    slaDias: 1, ordem: 1, terminal: false, proximaAcao: 'Retornar ao cliente', confirmLabel: 'Cliente contactado ✓', responsavel_default: 'interno',
   },
   solicitacao_documentos: {
     id: 'solicitacao_documentos', label: 'Solicitação de Documentos', descricao: 'Solicitar documentos necessários ao cliente',
-    slaDias: 1, ordem: 2, terminal: false, proximaAcao: 'Solicitar documentos', responsavel_default: 'interno',
+    slaDias: 1, ordem: 2, terminal: false, proximaAcao: 'Solicitar documentos', confirmLabel: 'Documentos solicitados ✓', responsavel_default: 'interno',
     prereq: { key: 'docs_solicitados', question: 'Documentos foram solicitados ao cliente?' },
   },
   envio_contrato: {
     id: 'envio_contrato', label: 'Envio de Contrato', descricao: 'Enviar contrato de honorários ao cliente',
-    slaDias: 1, ordem: 3, terminal: false, proximaAcao: 'Enviar contrato', responsavel_default: 'interno',
+    slaDias: 1, ordem: 3, terminal: false, proximaAcao: 'Enviar contrato', confirmLabel: 'Contrato enviado ✓', responsavel_default: 'interno',
     prereq: { key: 'contrato_enviado', question: 'Contrato foi enviado ao cliente?' },
   },
   esclarecimento_duvidas: {
     id: 'esclarecimento_duvidas', label: 'Esclarecimento de Dúvidas', descricao: 'Esclarecer dúvidas do cliente sobre contrato/processo',
-    slaDias: 1, ordem: 4, terminal: false, proximaAcao: 'Esclarecer dúvidas', responsavel_default: 'cliente',
+    slaDias: 1, ordem: 4, terminal: false, proximaAcao: 'Esclarecer dúvidas', confirmLabel: 'Dúvidas esclarecidas ✓', responsavel_default: 'cliente',
   },
   recebimento_documentos: {
     id: 'recebimento_documentos', label: 'Recebimento de Documentos', descricao: 'Aguardar recebimento dos documentos do cliente',
-    slaDias: 3, ordem: 5, terminal: false, proximaAcao: 'Cobrar documentos', responsavel_default: 'cliente',
+    slaDias: 3, ordem: 5, terminal: false, proximaAcao: 'Cobrar documentos', confirmLabel: 'Documentos recebidos ✓', responsavel_default: 'cliente',
     prereq: { key: 'docs_recebidos', question: 'Todos os documentos foram recebidos?' },
   },
   cadastro_interno: {
     id: 'cadastro_interno', label: 'Cadastro Interno', descricao: 'Cadastrar caso no sistema interno do escritório',
-    slaDias: 1, ordem: 6, terminal: false, proximaAcao: 'Cadastrar internamente', responsavel_default: 'interno',
+    slaDias: 1, ordem: 6, terminal: false, proximaAcao: 'Cadastrar internamente', confirmLabel: 'Cadastro realizado ✓', responsavel_default: 'interno',
     prereq: { key: 'cadastro_feito', question: 'Caso cadastrado no sistema interno?' },
   },
   confeccao_inicial: {
     id: 'confeccao_inicial', label: 'Confecção Inicial', descricao: 'Elaborar peça inicial do processo',
-    slaDias: 7, ordem: 7, terminal: false, proximaAcao: 'Elaborar peça inicial', responsavel_default: 'interno',
+    slaDias: 7, ordem: 7, terminal: false, proximaAcao: 'Elaborar peça inicial', confirmLabel: 'Peça elaborada ✓', responsavel_default: 'interno',
   },
   distribuicao: {
     id: 'distribuicao', label: 'Distribuição', descricao: 'Distribuir processo no tribunal',
-    slaDias: 7, ordem: 8, terminal: false, proximaAcao: 'Distribuir processo', responsavel_default: 'interno',
+    slaDias: 7, ordem: 8, terminal: false, proximaAcao: 'Distribuir processo', confirmLabel: 'Processo distribuído ✓', responsavel_default: 'interno',
   },
   em_andamento: {
     id: 'em_andamento', label: 'Em Andamento', descricao: 'Caso ativo com acompanhamento contínuo',
-    slaDias: 30, ordem: 9, terminal: false, proximaAcao: 'Acompanhar processo', responsavel_default: 'interno',
+    slaDias: 30, ordem: 9, terminal: false, proximaAcao: 'Acompanhar processo', confirmLabel: 'Acompanhamento atualizado ✓', responsavel_default: 'interno',
   },
   fechado: {
     id: 'fechado', label: 'Fechado', descricao: 'Caso concluído com sucesso',
-    slaDias: 0, ordem: 10, terminal: true, proximaAcao: null, responsavel_default: 'interno',
+    slaDias: 0, ordem: 10, terminal: true, proximaAcao: null, confirmLabel: null, responsavel_default: 'interno',
   },
   perdido: {
     id: 'perdido', label: 'Perdido', descricao: 'Caso não evoluiu ou cliente desistiu',
-    slaDias: 0, ordem: 11, terminal: true, proximaAcao: null, responsavel_default: 'interno',
+    slaDias: 0, ordem: 11, terminal: true, proximaAcao: null, confirmLabel: null, responsavel_default: 'interno',
   },
   resolvido: {
     id: 'resolvido', label: 'Resolvido', descricao: 'Demanda resolvida sem necessidade de processo',
-    slaDias: 0, ordem: 12, terminal: true, proximaAcao: null, responsavel_default: 'interno',
+    slaDias: 0, ordem: 12, terminal: true, proximaAcao: null, confirmLabel: null, responsavel_default: 'interno',
   },
 }
 
@@ -242,6 +244,15 @@ export function diasRestantes(prazoProximaAcao: string | null, now?: number): nu
 export function getPrereq(statusNegocio: string): { key: string; question: string } | null {
   const resolved = resolveStatus(statusNegocio)
   return JOURNEY_STAGES[resolved]?.prereq ?? null
+}
+
+/**
+ * Retorna o texto do botão de confirmação para a etapa atual.
+ * Ex: "Documentos solicitados ✓". Retorna null se etapa terminal.
+ */
+export function getConfirmLabel(statusNegocio: string): string | null {
+  const resolved = resolveStatus(statusNegocio)
+  return JOURNEY_STAGES[resolved]?.confirmLabel ?? null
 }
 
 
