@@ -82,7 +82,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
   const [activePill, setActivePill] = useState<'todos' | 'aguardando' | 'sem_retorno'>('todos')
   const [filterCriticalOnly, setFilterCriticalOnly] = useState(false)
   const [showNewContactModal, setShowNewContactModal] = useState(false)
-  const [newContact, setNewContact] = useState({ nome: '', telefone: '', canal: 'whatsapp', segmento: '' })
+  const [newContact, setNewContact] = useState({ nome: '', telefone: '', canal: 'whatsapp', segmento: '', estadoPainel: 'triagem' })
   const [isSavingContact, setIsSavingContact] = useState(false)
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -113,12 +113,12 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
 
     const atMap = new Map((atendimentos || []).map((a: any) => [a.identity_id, a]))
 
-    // 3. Filter: only leads where estado_painel IS NULL or 'lead'
+    // 3. Filter: only leads in triagem (or without atendimento)
     const filtered = allLeads.filter((lead: any) => {
       if (!lead.identity_id) return true // no identity = new lead = show
       const at = atMap.get(lead.identity_id)
-      if (!at) return true // no atendimento = triagem = show
-      return at.estado_painel === null || at.estado_painel === 'lead'
+      if (!at) return true // no atendimento = show
+      return at.estado_painel === null || at.estado_painel === 'lead' || at.estado_painel === 'triagem'
     })
 
     // 4. Dedup by identity_id (keep most recent — already sorted by ultima_msg_em DESC)
@@ -299,6 +299,30 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
     }
   }, [criticalCount, filterCriticalOnly])
 
+  // ── Priority recommendation — top 1 lead that needs attention ──
+  const recommendation = useMemo(() => {
+    if (prioritizedLeads.length === 0) return null
+    const top = prioritizedLeads[0]
+    if (!top) return null
+    // Only recommend if it's actually urgent
+    const priority = deriveGlobalPriority({
+      ultima_msg_em: top.ultima_msg_em,
+      ultima_msg_de: top.ultima_msg_de,
+      created_at: top.created_at,
+      estado_painel: null,
+    })
+    if (priority.level > 2) return null // Only levels 0-2 (critical/urgent)
+    const name = top.nome || displayPhone(top.telefone) || 'Contato'
+    const diffMs = Date.now() - new Date(top.ultima_msg_em || top.created_at).getTime()
+    const diffMin = Math.floor(diffMs / 60000)
+    let reason = ''
+    if (priority.level === 0) reason = 'prazo vencido'
+    else if (diffMin < 5) reason = 'acabou de responder'
+    else if (diffMin < 30) reason = `respondeu há ${diffMin}min`
+    else reason = 'aguardando ação'
+    return { lead: top, name, reason, level: priority.level }
+  }, [prioritizedLeads])
+
   // ── Counters (includes temperature distribution) ──
   const counters = useMemo(() => {
     let waiting = 0, noResponse = 0, hot = 0, warm = 0, cold = 0
@@ -386,7 +410,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
         channel_user_id: newContact.telefone.trim(),
       })
 
-      // 3. Create lead
+      // 3. Create lead (with origem_entrada = 'manual')
       const { data: lead, error: leadErr } = await supabase
         .from('leads')
         .insert({
@@ -394,6 +418,7 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
           nome: newContact.nome.trim(),
           telefone: newContact.telefone.trim(),
           canal_origem: newContact.canal,
+          origem_entrada: 'manual',
           status: 'aberto',
           is_assumido: true,
           status_pipeline: 'EM_ATENDIMENTO',
@@ -403,12 +428,50 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
 
       if (leadErr || !lead) throw leadErr
 
-      // 4. Select the new lead
+      // 4. Create atendimento with selected estado_painel
+      const estadoPainel = newContact.estadoPainel as 'triagem' | 'em_atendimento' | 'cliente'
+      // cliente manual → 'em_andamento' (não 'fechado' — fechado = contrato assinado)
+      const statusNegocio = estadoPainel === 'em_atendimento'
+        ? 'analise_viabilidade'
+        : estadoPainel === 'cliente'
+        ? 'em_andamento'
+        : null
+
+      await supabase.from('atendimentos').insert({
+        identity_id: identity.id,
+        lead_id: lead.id,
+        owner_id: operadorId,
+        estado_painel: estadoPainel,
+        status_negocio: statusNegocio,
+        destino: estadoPainel !== 'triagem' ? 'backoffice' : null,
+        estado_valor: 'indefinido',
+        ...(statusNegocio ? {
+          prazo_proxima_acao: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString(),
+        } : {}),
+      })
+
+      // 5. Audit trail — register initial transition
+      const { data: at } = await supabase
+        .from('atendimentos')
+        .select('id')
+        .eq('identity_id', identity.id)
+        .maybeSingle()
+
+      if (at && operadorId) {
+        await supabase.from('status_transitions').insert({
+          atendimento_id: at.id,
+          status_anterior: null,
+          status_novo: statusNegocio || 'triagem',
+          operador_id: operadorId,
+        })
+      }
+
+      // 6. Select the new lead
       onSelectLead({ ...lead, corrigido: lead.corrigido ?? false })
 
-      // 5. Close modal and reset form
+      // 7. Close modal, reset form, show feedback
       setShowNewContactModal(false)
-      setNewContact({ nome: '', telefone: '', canal: 'whatsapp', segmento: '' })
+      setNewContact({ nome: '', telefone: '', canal: 'whatsapp', segmento: '', estadoPainel: 'triagem' })
 
       // Reload sidebar
       loadLeads()
@@ -634,6 +697,18 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
             </p>
           </button>
         )}
+
+        {/* Priority recommendation — explicit suggestion */}
+        {recommendation && recommendation.lead.id !== selectedLeadId && criticalCount === 0 && (
+          <button
+            onClick={() => onSelectLead(recommendation.lead)}
+            className="mx-0 mb-1 px-3 py-2 rounded-lg text-left w-full bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-all"
+          >
+            <p className="text-[11px] font-bold text-blue-700">
+              ⚡ Atender {recommendation.name} — {recommendation.reason}
+            </p>
+          </button>
+        )}
         {isSearching && (
           <p className="px-3 py-4 text-xs text-gray-400 text-center">Buscando...</p>
         )}
@@ -732,6 +807,31 @@ export default function ConversasSidebar({ selectedLeadId, onSelectLead, closedL
                   className="w-full bg-[#F7F8FA] border border-[#E6E8EC]/10 rounded-xl px-3 py-2 text-sm text-gray-900 outline-none focus:ring-1 focus:ring-blue-100"
                   placeholder="Ex: Trabalhista"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Estágio do caso</label>
+                <div className="flex gap-2">
+                  {([
+                    { value: 'triagem', label: 'Triagem' },
+                    { value: 'em_atendimento', label: 'Em execução' },
+                    { value: 'cliente', label: 'Cliente' },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setNewContact(p => ({ ...p, estadoPainel: opt.value }))}
+                      className={cn(
+                        'flex-1 py-2 rounded-lg text-xs font-bold border transition-colors',
+                        newContact.estadoPainel === opt.value
+                          ? 'border-blue-400 bg-blue-50 text-blue-600'
+                          : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 

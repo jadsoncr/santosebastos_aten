@@ -11,6 +11,7 @@ import { splitLeads } from '@/utils/criticalPressure'
 import { useCriticalAlert } from '@/hooks/useCriticalAlert'
 import { trackEvent, resolveLeadSelectEvents } from '@/utils/behaviorTracker'
 import { getProximaAcao, getEtapaLabel, calcularProgresso, isSlaVencido, diasRestantes, getResponsavel } from '@/utils/journeyModel'
+import { countInactive } from '@/utils/inactivityNudge'
 import { getPrazoLabel } from '@/utils/painelStatus'
 import type { Lead } from '../../tela1/page'
 
@@ -234,6 +235,28 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
     }
   }, [criticalCount, filterCriticalOnly])
 
+  // ── Priority recommendation — top 1 case that needs attention ──
+  const recommendation = useMemo(() => {
+    if (prioritizedCases.length === 0) return null
+    const top = prioritizedCases[0]
+    if (!top || !top.prazo_proxima_acao) return null
+    const prazoVencido = new Date(top.prazo_proxima_acao).getTime() < Date.now()
+    if (!prazoVencido) return null
+    const name = top.nome || displayPhone(top.telefone) || 'Contato'
+    const action = top.status_negocio ? getProximaAcao(top.status_negocio) : null
+    return { lead: top, name, action }
+  }, [prioritizedCases])
+
+  // ── Inactivity count (cases paused 24h+) ──
+  const inactiveCount = useMemo(() => {
+    return countInactive(prioritizedCases.map(c => ({
+      prazo_proxima_acao: c.prazo_proxima_acao ?? null,
+      status_negocio: c.status_negocio ?? null,
+      ultima_msg_de: c.ultima_msg_de ?? null,
+      estado_painel: c.estadoPainel,
+    })))
+  }, [prioritizedCases])
+
   // Auto-select first case if none selected
   useEffect(() => {
     if (!selectedLeadId && prioritizedCases.length > 0) {
@@ -379,7 +402,6 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
         <p className="text-xs text-gray-400 mt-1">{prioritizedCases.length} decisões em execução</p>
       </div>
       <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1 scrollbar-hide">
-        {/* Critical banner — clickable toggle filter */}
         {criticalCount > 0 && (
           <button
             onClick={() => setFilterCriticalOnly(prev => !prev)}
@@ -394,6 +416,27 @@ export default function BackofficeSidebar({ selectedLeadId, onSelectLead }: Prop
               {filterCriticalOnly && <span className="ml-2 opacity-75">✕ ver todas</span>}
             </p>
           </button>
+        )}
+
+        {/* Priority recommendation — explicit suggestion */}
+        {recommendation && recommendation.lead.id !== selectedLeadId && criticalCount === 0 && (
+          <button
+            onClick={() => onSelectLead(recommendation.lead)}
+            className="mx-0 mb-1 px-3 py-2 rounded-lg text-left w-full bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-all"
+          >
+            <p className="text-[11px] font-bold text-blue-700">
+              ⚡ {recommendation.name} — {recommendation.action || 'prazo vencido'}
+            </p>
+          </button>
+        )}
+
+        {/* Inactivity nudge banner */}
+        {inactiveCount > 0 && criticalCount === 0 && !recommendation && (
+          <div className="mx-0 mb-1 px-3 py-2 rounded-lg bg-yellow-50 border border-yellow-200">
+            <p className="text-[11px] font-bold text-yellow-700">
+              ⏰ {inactiveCount} {inactiveCount === 1 ? 'caso parado' : 'casos parados'} há mais de 24h
+            </p>
+          </div>
         )}
 
         {prioritizedCases.length === 0 && (

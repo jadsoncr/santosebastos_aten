@@ -177,7 +177,7 @@ export default function EncerradosPage() {
     setLoadingId(item.id)
     try {
       await supabase.from('atendimentos').update({
-        estado_painel: 'lead',
+        estado_painel: 'triagem',
         ciclo: item.ciclo + 1,
         status_negocio: null,
         destino: null,
@@ -186,6 +186,11 @@ export default function EncerradosPage() {
         motivo_fechamento: null,
         encerrado_em: null,
       }).eq('identity_id', item.identity_id)
+
+      // Reset ultima_msg_em on the lead so it appears fresh in Entrada
+      await supabase.from('leads').update({
+        ultima_msg_em: new Date().toISOString(),
+      }).eq('id', item.id)
 
       // Audit trail
       const { data: at } = await supabase
@@ -198,7 +203,7 @@ export default function EncerradosPage() {
         await supabase.from('status_transitions').insert({
           atendimento_id: at.id,
           status_anterior: 'encerrado',
-          status_novo: 'lead',
+          status_novo: 'triagem',
           operador_id: operadorId,
         })
       }
@@ -208,7 +213,7 @@ export default function EncerradosPage() {
         socket.emit('estado_painel_changed', {
           identity_id: item.identity_id,
           lead_id: item.id,
-          estado_painel: 'lead',
+          estado_painel: 'triagem',
         })
         socket.emit('lead_reaquecido', {
           lead_id: item.id,

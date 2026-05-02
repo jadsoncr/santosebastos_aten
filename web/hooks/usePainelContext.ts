@@ -133,10 +133,8 @@ export function usePainelContext(lead: LeadInput | null): PainelContext {
         : payload.lead_id === lead.id
       if (!matches) return
 
-      setCtx(prev => ({
-        ...prev,
-        estado_painel: (payload.estado_painel as EstadoPainel) || null,
-      }))
+      // Full refetch to get all updated fields (status_negocio, prazo, etc.)
+      fetchContext()
     }
 
     socket.on('estado_painel_changed', handler)

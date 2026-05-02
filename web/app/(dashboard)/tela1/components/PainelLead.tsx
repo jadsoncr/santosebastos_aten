@@ -10,7 +10,9 @@ import { resolveTreatment, TREATMENT_TIPOS, TREATMENT_DETALHES, type TreatmentTi
 import { calcularPrazo, getPrazoLabel } from '@/utils/painelStatus'
 import { getIntencaoAtual } from '@/utils/getIntencaoAtual'
 import { getNextActionLabel } from '@/utils/nextAction'
-import { getResponsavel, resolveStatus } from '@/utils/journeyModel'
+import { getResponsavel, resolveStatus, getEstadoValorBadge, getEstadoValorColor, getEstadoValorLabel, getPrereq } from '@/utils/journeyModel'
+import { getDecisionContext } from '@/utils/decisionContext'
+import { suggestClassification, findSegmentIdByName } from '@/utils/classificationSuggestion'
 import { getNextStep, ACTION_MAP } from '@/utils/businessStateMachine'
 import { filterChildren, type SegmentNode } from '@/utils/segmentTree'
 import { cn } from '@/lib/utils'
@@ -55,6 +57,7 @@ function formatStatusNegocio(status: string | null): string {
     cadastro_interno: 'Cadastro interno',
     confeccao_inicial: 'Confecção inicial',
     distribuicao: 'Distribuição',
+    em_andamento: 'Em andamento',
     // Legacy (backward compat)
     aguardando_agendamento: 'Aguardando agendamento',
     aguardando_contato: 'Aguardando contato',
@@ -113,6 +116,9 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
   const [showMotivoPopup, setShowMotivoPopup] = useState(false)
   const [motivoSelecionado, setMotivoSelecionado] = useState('')
   const [motivoObs, setMotivoObs] = useState('')
+  const [showEstimativaModal, setShowEstimativaModal] = useState(false)
+  const [estimativaValor, setEstimativaValor] = useState('')
+  const [prereqChecked, setPrereqChecked] = useState(false)
   const [showIdentitySearch, setShowIdentitySearch] = useState(false)
   const [identityQuery, setIdentityQuery] = useState('')
   const [identityResults, setIdentityResults] = useState<{ id: string; nome: string | null; telefone: string | null }[]>([])
@@ -158,7 +164,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
     setEditName(lead.nome || ''); setEditPhone(lead.telefone || ''); setEditEmail(lead.email || '')
     setObservacao(''); setTratamentoTipo(''); setTratamentoDetalhe(''); setTreatment(null)
     setAreaId(null); setCategoriaId(null); setSubcategoriaId(null)
-    setShowMotivoPopup(false); setShowIdentitySearch(false)
+    setShowMotivoPopup(false); setShowIdentitySearch(false); setPrereqChecked(false)
     loadNotas()
   }, [lead?.id])
 
@@ -215,9 +221,9 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
     try {
       if (observacao.trim()) await handleSaveNota()
 
-      const { error } = await supabase.from('atendimentos').upsert({
-        identity_id: lead.identity_id,           // PRIMARY lookup key
-        lead_id: lead.id,                         // Keep for reference/routing
+      const atendimentoPayload = {
+        identity_id: lead.identity_id,
+        lead_id: lead.id,
         owner_id: operadorId,
         status: 'classificado',
         status_negocio: treatment.status_negocio,
@@ -230,7 +236,23 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         subcategoria_id: subcategoriaId || null,
         observacao: observacao.trim() || null,
         prazo_proxima_acao: calcularPrazo(treatment.status_negocio)?.toISOString() || null,
-      }, { onConflict: 'identity_id' })
+      }
+
+      // Try update first (atendimento may already exist from "Novo Contato")
+      const { data: existing } = await supabase
+        .from('atendimentos')
+        .select('id')
+        .eq('identity_id', lead.identity_id)
+        .maybeSingle()
+
+      let error: any = null
+      if (existing) {
+        const res = await supabase.from('atendimentos').update(atendimentoPayload).eq('identity_id', lead.identity_id)
+        error = res.error
+      } else {
+        const res = await supabase.from('atendimentos').insert(atendimentoPayload)
+        error = res.error
+      }
       if (error) throw error
 
       if (areaId) {
@@ -244,7 +266,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         socket.emit('conversa_classificada', { lead_id: lead.id, status_negocio: treatment.status_negocio, destino: treatment.destino })
         socket.emit('estado_painel_changed', { identity_id: lead.identity_id, lead_id: lead.id, estado_painel: treatment.destino === 'backoffice' ? 'em_atendimento' : 'encerrado' })
       }
-      showToastMsg(treatment.destino === 'backoffice' ? 'Decisão executada' : 'Decisão encerrada')
+      showToastMsg(treatment.destino === 'backoffice' ? 'Caso movido para Execução' : 'Decisão encerrada')
       ctx.refetch()
       onLeadClosed()
     } catch (err: any) { showToastMsg(err.message || 'Erro', 'error') }
@@ -275,11 +297,13 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
       // Audit trail
       const { data: at } = await supabase.from('atendimentos').select('id').eq('identity_id', lead.identity_id).maybeSingle()
       if (at) {
+        const prereq = statusAnterior ? getPrereq(statusAnterior) : null
         await supabase.from('status_transitions').insert({
           atendimento_id: at.id,
           status_anterior: statusAnterior,
           status_novo: novoStatus,
           operador_id: operadorId,
+          ...(prereq ? { meta: { prereq_key: prereq.key, confirmed: true } } : {}),
         })
       }
 
@@ -576,6 +600,30 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         {mode.classJuridica && (
           <div className="p-4 border-b space-y-3">
             <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Tipo de decisão</div>
+
+            {/* Suggestion banner — based on area_bot */}
+            {!areaId && (() => {
+              const suggestion = suggestClassification({
+                area_bot: lead.area_bot || null,
+                area: lead.area || null,
+                alreadyClassified: !!areaId,
+              })
+              if (!suggestion) return null
+              const suggestedId = findSegmentIdByName(segmentNodes, suggestion.segmentName)
+              if (!suggestedId) return null
+              return (
+                <button
+                  onClick={() => { setAreaId(suggestedId); setCategoriaId(null); setSubcategoriaId(null) }}
+                  className="w-full px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors text-left"
+                >
+                  <p className="text-[10px] font-bold text-blue-700">
+                    💡 Sugestão: {suggestion.label}
+                  </p>
+                  <p className="text-[9px] text-blue-500 mt-0.5">{suggestion.source} • Clique para aplicar</p>
+                </button>
+              )
+            })()}
+
             <div>
               <label className="text-[10px] font-bold text-gray-600 uppercase block mb-1">Área do caso</label>
               <select value={areaId || ''} onChange={e => { setAreaId(e.target.value || null); setCategoriaId(null); setSubcategoriaId(null) }} disabled={!isOwner}
@@ -722,43 +770,60 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
           </div>
         )}
 
+        {/* ═══ NUDGE DE INATIVIDADE (em_atendimento) ═══ */}
+        {mode.statusAtual && (() => {
+          const decision = getDecisionContext({
+            ultima_msg_em: lead?.ultima_msg_em ?? null,
+            ultima_msg_de: lead?.ultima_msg_de ?? null,
+            created_at: lead?.created_at ?? new Date().toISOString(),
+            estado_painel: ctx.estado_painel,
+            status_negocio: ctx.status_negocio,
+            prazo_proxima_acao: ctx.prazo_proxima_acao,
+          })
+          if (!decision.isStale) return null
+          const nudge = decision.inactivity!
+          return (
+            <div className={cn(
+              "mx-4 mt-2 px-3 py-2 rounded-lg border",
+              nudge.severity === 'critical'
+                ? "bg-red-50 border-red-200"
+                : "bg-yellow-50 border-yellow-200"
+            )}>
+              <p className={cn(
+                "text-[11px] font-bold",
+                nudge.severity === 'critical' ? "text-red-700" : "text-yellow-700"
+              )}>
+                ⏰ {nudge.message}
+              </p>
+              {nudge.action && (
+                <p className={cn(
+                  "text-[10px] mt-0.5",
+                  nudge.severity === 'critical' ? "text-red-600" : "text-yellow-600"
+                )}>
+                  Ação sugerida: {nudge.action}
+                </p>
+              )}
+            </div>
+          )
+        })()}
+
         {/* ═══ VALOR DO CASO (em_atendimento + cliente) ═══ */}
         {(mode.statusAtual || mode.contrato) && (
           <div className="p-4 border-b space-y-2">
             <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Valor do caso</div>
             <div className="flex items-center gap-2">
-              <span className="text-sm">{(() => { const { getEstadoValorBadge } = require('@/utils/journeyModel'); return getEstadoValorBadge(ctx.estado_valor) })()}</span>
-              <span className={`text-xs font-bold ${(() => { const { getEstadoValorColor } = require('@/utils/journeyModel'); return getEstadoValorColor(ctx.estado_valor) })()}`}>
-                {(() => {
-                  const { getEstadoValorLabel } = require('@/utils/journeyModel')
-                  if (ctx.estado_valor === 'realizado' && ctx.valor_contrato) {
-                    return `Valor realizado: R$ ${Number(ctx.valor_contrato).toLocaleString('pt-BR')}`
-                  }
-                  if (ctx.estado_valor === 'estimado' && ctx.valor_contrato) {
-                    return `Estimativa interna: R$ ${Number(ctx.valor_contrato).toLocaleString('pt-BR')} (não vinculante)`
-                  }
-                  return getEstadoValorLabel(ctx.estado_valor as any)
-                })()}
+              <span className="text-sm">{getEstadoValorBadge(ctx.estado_valor as any)}</span>
+              <span className={`text-xs font-bold ${getEstadoValorColor(ctx.estado_valor as any)}`}>
+                {ctx.estado_valor === 'realizado' && ctx.valor_contrato
+                  ? `Valor realizado: R$ ${Number(ctx.valor_contrato).toLocaleString('pt-BR')}`
+                  : ctx.estado_valor === 'estimado' && ctx.valor_contrato
+                  ? `Estimativa interna: R$ ${Number(ctx.valor_contrato).toLocaleString('pt-BR')} (não vinculante)`
+                  : getEstadoValorLabel(ctx.estado_valor as any)}
               </span>
             </div>
             {ctx.estado_valor === 'indefinido' && mode.statusAtual && (
               <button
-                onClick={async () => {
-                  const valor = prompt('Estimativa interna do caso (R$):')
-                  if (!valor || !lead?.identity_id) return
-                  await supabase.from('atendimentos').update({
-                    estado_valor: 'estimado',
-                    estado_valor_updated_at: new Date().toISOString(),
-                    valor_contrato: parseFloat(valor) || 0,
-                  }).eq('identity_id', lead.identity_id)
-                  // Audit
-                  const { data: at } = await supabase.from('atendimentos').select('id').eq('identity_id', lead.identity_id).maybeSingle()
-                  if (at && operadorId) {
-                    await supabase.from('status_transitions').insert({ atendimento_id: at.id, status_anterior: 'valor_indefinido', status_novo: 'valor_estimado', operador_id: operadorId })
-                  }
-                  showToastMsg('Estimativa definida')
-                  ctx.refetch()
-                }}
+                onClick={() => setShowEstimativaModal(true)}
                 className="text-[10px] font-bold text-blue-600 hover:underline"
               >
                 Definir estimativa
@@ -776,11 +841,29 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
             {(() => {
               const resolvedStatus = ctx.status_negocio ? resolveStatus(ctx.status_negocio) : null
               const nextStep = resolvedStatus ? getNextStep(resolvedStatus as any) : null
+              const prereq = resolvedStatus ? getPrereq(resolvedStatus) : null
+              const canAdvance = !prereq || prereqChecked
               return (
                 <>
+                  {/* Checklist — prereq confirmation before advancing */}
+                  {nextStep && prereq && (
+                    <label className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 cursor-pointer hover:bg-gray-100 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={prereqChecked}
+                        onChange={e => setPrereqChecked(e.target.checked)}
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-xs text-gray-700 font-medium">{prereq.question}</span>
+                    </label>
+                  )}
+
                   {nextStep && (
-                    <button onClick={() => handleAvancarStatus(nextStep.targetStatus)} disabled={loading}
-                      className="w-full py-2.5 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-40">
+                    <button onClick={() => { handleAvancarStatus(nextStep.targetStatus); setPrereqChecked(false) }} disabled={loading || !canAdvance}
+                      className={cn(
+                        "w-full py-2.5 rounded-lg text-sm font-semibold transition-colors disabled:opacity-40",
+                        canAdvance ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                      )}>
                       {nextStep.label}
                     </button>
                   )}
@@ -1025,6 +1108,58 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
               <div className="flex justify-end gap-2">
                 <button onClick={() => setShowMotivoPopup(false)} className="px-4 py-2 text-sm text-gray-400">Cancelar</button>
                 <button onClick={handleNaoFechou} disabled={!motivoSelecionado || loading} className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg disabled:opacity-40">{loading ? 'Salvando...' : 'Confirmar'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL — Estimativa de valor */}
+      {showEstimativaModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowEstimativaModal(false)}>
+          <div className="bg-white rounded-xl p-5 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-gray-900 mb-1">Definir estimativa do caso</h3>
+            <p className="text-[10px] text-gray-400 mb-4">Estimativa interna (não vinculante)</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold text-gray-600 uppercase block mb-1">Valor estimado (R$)</label>
+                <input
+                  type="number"
+                  value={estimativaValor}
+                  onChange={e => setEstimativaValor(e.target.value)}
+                  placeholder="0"
+                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-medium"
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={() => { setShowEstimativaModal(false); setEstimativaValor('') }} className="px-4 py-2 text-sm text-gray-400">Cancelar</button>
+                <button
+                  onClick={async () => {
+                    if (!estimativaValor || !lead?.identity_id) return
+                    setLoading(true)
+                    try {
+                      await supabase.from('atendimentos').update({
+                        estado_valor: 'estimado',
+                        estado_valor_updated_at: new Date().toISOString(),
+                        valor_contrato: parseFloat(estimativaValor) || 0,
+                      }).eq('identity_id', lead.identity_id)
+                      const { data: at } = await supabase.from('atendimentos').select('id').eq('identity_id', lead.identity_id).maybeSingle()
+                      if (at && operadorId) {
+                        await supabase.from('status_transitions').insert({ atendimento_id: at.id, status_anterior: 'valor_indefinido', status_novo: 'valor_estimado', operador_id: operadorId })
+                      }
+                      showToastMsg('Estimativa definida')
+                      setShowEstimativaModal(false)
+                      setEstimativaValor('')
+                      ctx.refetch()
+                    } catch (err: any) { showToastMsg(err.message || 'Erro', 'error') }
+                    finally { setLoading(false) }
+                  }}
+                  disabled={!estimativaValor || loading}
+                  className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg disabled:opacity-40"
+                >
+                  {loading ? 'Salvando...' : 'Confirmar estimativa'}
+                </button>
               </div>
             </div>
           </div>

@@ -26,6 +26,11 @@ export interface JourneyStage {
   proximaAcao: string | null
   /** Responsável padrão da etapa */
   responsavel_default: 'interno' | 'cliente'
+  /** Pré-requisito para avançar PARA a próxima etapa (confirmação antes de sair desta) */
+  prereq?: {
+    key: string
+    question: string
+  }
 }
 
 // ── JOURNEY_STAGES — Fonte única de verdade ──
@@ -42,10 +47,12 @@ export const JOURNEY_STAGES: Record<string, JourneyStage> = {
   solicitacao_documentos: {
     id: 'solicitacao_documentos', label: 'Solicitação de Documentos', descricao: 'Solicitar documentos necessários ao cliente',
     slaDias: 1, ordem: 2, terminal: false, proximaAcao: 'Solicitar documentos', responsavel_default: 'interno',
+    prereq: { key: 'docs_solicitados', question: 'Documentos foram solicitados ao cliente?' },
   },
   envio_contrato: {
     id: 'envio_contrato', label: 'Envio de Contrato', descricao: 'Enviar contrato de honorários ao cliente',
     slaDias: 1, ordem: 3, terminal: false, proximaAcao: 'Enviar contrato', responsavel_default: 'interno',
+    prereq: { key: 'contrato_enviado', question: 'Contrato foi enviado ao cliente?' },
   },
   esclarecimento_duvidas: {
     id: 'esclarecimento_duvidas', label: 'Esclarecimento de Dúvidas', descricao: 'Esclarecer dúvidas do cliente sobre contrato/processo',
@@ -54,10 +61,12 @@ export const JOURNEY_STAGES: Record<string, JourneyStage> = {
   recebimento_documentos: {
     id: 'recebimento_documentos', label: 'Recebimento de Documentos', descricao: 'Aguardar recebimento dos documentos do cliente',
     slaDias: 3, ordem: 5, terminal: false, proximaAcao: 'Cobrar documentos', responsavel_default: 'cliente',
+    prereq: { key: 'docs_recebidos', question: 'Todos os documentos foram recebidos?' },
   },
   cadastro_interno: {
     id: 'cadastro_interno', label: 'Cadastro Interno', descricao: 'Cadastrar caso no sistema interno do escritório',
     slaDias: 1, ordem: 6, terminal: false, proximaAcao: 'Cadastrar internamente', responsavel_default: 'interno',
+    prereq: { key: 'cadastro_feito', question: 'Caso cadastrado no sistema interno?' },
   },
   confeccao_inicial: {
     id: 'confeccao_inicial', label: 'Confecção Inicial', descricao: 'Elaborar peça inicial do processo',
@@ -67,17 +76,21 @@ export const JOURNEY_STAGES: Record<string, JourneyStage> = {
     id: 'distribuicao', label: 'Distribuição', descricao: 'Distribuir processo no tribunal',
     slaDias: 7, ordem: 8, terminal: false, proximaAcao: 'Distribuir processo', responsavel_default: 'interno',
   },
+  em_andamento: {
+    id: 'em_andamento', label: 'Em Andamento', descricao: 'Caso ativo com acompanhamento contínuo',
+    slaDias: 30, ordem: 9, terminal: false, proximaAcao: 'Acompanhar processo', responsavel_default: 'interno',
+  },
   fechado: {
     id: 'fechado', label: 'Fechado', descricao: 'Caso concluído com sucesso',
-    slaDias: 0, ordem: 9, terminal: true, proximaAcao: null, responsavel_default: 'interno',
+    slaDias: 0, ordem: 10, terminal: true, proximaAcao: null, responsavel_default: 'interno',
   },
   perdido: {
     id: 'perdido', label: 'Perdido', descricao: 'Caso não evoluiu ou cliente desistiu',
-    slaDias: 0, ordem: 10, terminal: true, proximaAcao: null, responsavel_default: 'interno',
+    slaDias: 0, ordem: 11, terminal: true, proximaAcao: null, responsavel_default: 'interno',
   },
   resolvido: {
     id: 'resolvido', label: 'Resolvido', descricao: 'Demanda resolvida sem necessidade de processo',
-    slaDias: 0, ordem: 11, terminal: true, proximaAcao: null, responsavel_default: 'interno',
+    slaDias: 0, ordem: 12, terminal: true, proximaAcao: null, responsavel_default: 'interno',
   },
 }
 
@@ -219,6 +232,16 @@ export function diasRestantes(prazoProximaAcao: string | null, now?: number): nu
   const currentTime = now ?? Date.now()
   const diffMs = new Date(prazoProximaAcao).getTime() - currentTime
   return Math.ceil(diffMs / (24 * 60 * 60 * 1000))
+}
+
+
+/**
+ * Retorna o pré-requisito da etapa atual (para checklist antes de avançar).
+ * Retorna null se a etapa não tem pré-requisito.
+ */
+export function getPrereq(statusNegocio: string): { key: string; question: string } | null {
+  const resolved = resolveStatus(statusNegocio)
+  return JOURNEY_STAGES[resolved]?.prereq ?? null
 }
 
 

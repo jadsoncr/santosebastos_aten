@@ -51,8 +51,8 @@ describe('Property 2: ETAPAS_ATIVAS ordering', () => {
     }
   })
 
-  it('has 9 active stages', () => {
-    expect(ETAPAS_ATIVAS.length).toBe(9)
+  it('has 10 active stages', () => {
+    expect(ETAPAS_ATIVAS.length).toBe(10)
   })
 })
 

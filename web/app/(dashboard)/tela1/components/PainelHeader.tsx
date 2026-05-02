@@ -16,6 +16,13 @@ interface PainelHeaderProps {
   onDelegated?: () => void
 }
 
+interface OperatorWithLoad {
+  id: string
+  nome: string
+  caseCount: number
+  level: 'low' | 'medium' | 'high'
+}
+
 function getEstadoDot(estado: EstadoPainel | null): string {
   switch (estado) {
     case 'em_atendimento': return 'bg-blue-500'
@@ -34,6 +41,20 @@ function getEstadoBorder(estado: EstadoPainel | null): string {
   }
 }
 
+function getLoadLevel(count: number): 'low' | 'medium' | 'high' {
+  if (count <= 3) return 'low'
+  if (count <= 7) return 'medium'
+  return 'high'
+}
+
+function getLoadBadge(level: 'low' | 'medium' | 'high'): { color: string; label: string } {
+  switch (level) {
+    case 'low': return { color: 'bg-green-100 text-green-700', label: '🟢' }
+    case 'medium': return { color: 'bg-yellow-100 text-yellow-700', label: '🟡' }
+    case 'high': return { color: 'bg-red-100 text-red-700', label: '🔴' }
+  }
+}
+
 export default function PainelHeader({
   estadoPainel,
   ownerNome,
@@ -43,18 +64,42 @@ export default function PainelHeader({
   onDelegated,
 }: PainelHeaderProps) {
   const [showPopover, setShowPopover] = useState(false)
-  const [operators, setOperators] = useState<{ id: string; nome: string }[]>([])
+  const [operators, setOperators] = useState<OperatorWithLoad[]>([])
+  const [loadingOps, setLoadingOps] = useState(false)
   const supabase = createClient()
   const socket = useSocket()
 
   async function handleTogglePopover() {
     if (!showPopover) {
-      const { data } = await supabase.from('operadores').select('id, nome')
-      setOperators(
-        (data || [])
-          .filter((op: any) => op.id !== operadorId)
-          .map((op: any) => ({ id: op.id, nome: op.nome || 'Operador' }))
-      )
+      setLoadingOps(true)
+      try {
+        // 1. Get all operators
+        const { data: ops } = await supabase.from('operadores').select('id, nome')
+        const filtered = (ops || []).filter((op: any) => op.id !== operadorId)
+
+        // 2. Get case counts per operator (em_atendimento + triagem)
+        const { data: atendimentos } = await supabase
+          .from('atendimentos')
+          .select('owner_id')
+          .in('estado_painel', ['em_atendimento', 'triagem'])
+
+        const countMap = new Map<string, number>()
+        for (const at of (atendimentos || [])) {
+          if (at.owner_id) {
+            countMap.set(at.owner_id, (countMap.get(at.owner_id) || 0) + 1)
+          }
+        }
+
+        // 3. Build operator list with load, sorted by caseCount ASC (least loaded first)
+        const withLoad: OperatorWithLoad[] = filtered.map((op: any) => {
+          const count = countMap.get(op.id) || 0
+          return { id: op.id, nome: op.nome || 'Operador', caseCount: count, level: getLoadLevel(count) }
+        }).sort((a, b) => a.caseCount - b.caseCount)
+
+        setOperators(withLoad)
+      } finally {
+        setLoadingOps(false)
+      }
     }
     setShowPopover(!showPopover)
   }
@@ -70,6 +115,8 @@ export default function PainelHeader({
       onDelegated?.()
     }
   }
+
+  const suggested = operators.length > 0 ? operators[0] : null
 
   return (
     <>
@@ -93,26 +140,40 @@ export default function PainelHeader({
               onClick={handleTogglePopover}
               className="text-[9px] text-blue-600 font-bold uppercase hover:underline"
             >
-              Delegar
+              {showPopover ? 'Fechar' : 'Delegar'}
             </button>
           )}
         </div>
       </div>
 
       {showPopover && (
-        <div className="px-4 py-2 border-b bg-blue-50/50 space-y-1">
-          {operators.length === 0 && (
-            <p className="text-xs text-gray-400 text-center">Nenhum operador</p>
+        <div className="px-4 py-3 border-b bg-blue-50/50 space-y-1.5">
+          {loadingOps && (
+            <p className="text-xs text-gray-400 text-center py-1">Carregando...</p>
           )}
-          {operators.map(op => (
-            <button
-              key={op.id}
-              onClick={() => handleDelegate(op.id)}
-              className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-100"
-            >
-              {op.nome}
-            </button>
-          ))}
+          {!loadingOps && operators.length === 0 && (
+            <p className="text-xs text-gray-400 text-center">Nenhum operador disponível</p>
+          )}
+          {!loadingOps && suggested && (
+            <p className="text-[9px] text-blue-600 font-bold uppercase mb-1">
+              ⚡ Sugerido: {suggested.nome} (menor carga)
+            </p>
+          )}
+          {!loadingOps && operators.map(op => {
+            const badge = getLoadBadge(op.level)
+            return (
+              <button
+                key={op.id}
+                onClick={() => handleDelegate(op.id)}
+                className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold hover:bg-blue-100 flex items-center justify-between transition-colors"
+              >
+                <span>{op.nome}</span>
+                <span className={cn('text-[9px] font-black px-2 py-0.5 rounded-full', badge.color)}>
+                  {badge.label} {op.caseCount} {op.caseCount === 1 ? 'caso' : 'casos'}
+                </span>
+              </button>
+            )
+          })}
         </div>
       )}
     </>
