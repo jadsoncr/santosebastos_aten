@@ -37,7 +37,7 @@ interface UseFlowOrchestratorDeps {
 
 export function useFlowOrchestrator(deps: UseFlowOrchestratorDeps) {
   const socket = useSocket()
-  const supabaseRef = useRef(createClient())
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   const [status, setStatus] = useState<TransitionStatus>('stable')
   const [lastError, setLastError] = useState<string | null>(null)
 
@@ -47,10 +47,15 @@ export function useFlowOrchestrator(deps: UseFlowOrchestratorDeps) {
   const depsRef = useRef(deps)
   depsRef.current = deps
 
-  if (!orchestratorRef.current) {
+  // Lazy init supabase client (only on client)
+  if (!supabaseRef.current && typeof window !== 'undefined') {
+    supabaseRef.current = createClient()
+  }
+
+  if (!orchestratorRef.current && typeof window !== 'undefined' && supabaseRef.current) {
     const services: FlowServices = {
       applyTransaction: async ({ ctx, toState, action, idempotencyKey, metadata }) => {
-        const supabase = supabaseRef.current
+        const supabase = supabaseRef.current!
 
         console.log('[FlowOrchestrator] applyTransaction:', { action, toState, version: ctx.snapshotVersion })
 
@@ -93,13 +98,14 @@ export function useFlowOrchestrator(deps: UseFlowOrchestratorDeps) {
       deriveStatus: async (ctx, toState) => {
         // Derive status_caso + status_motivo based on the transition
         // For now, only derive on specific transitions
+        const supabase = supabaseRef.current!
         if (toState === 'cliente') {
-          await supabaseRef.current
+          await supabase
             .from('atendimentos')
             .update({ status_caso: 'concluido', status_motivo: 'finalizado' })
             .eq('identity_id', ctx.identityId)
         } else if (toState === 'encerrado') {
-          await supabaseRef.current
+          await supabase
             .from('atendimentos')
             .update({ status_caso: 'concluido', status_motivo: 'perdido' })
             .eq('identity_id', ctx.identityId)
@@ -154,6 +160,24 @@ export function useFlowOrchestrator(deps: UseFlowOrchestratorDeps) {
     action: FlowAction,
     ctx: FlowContext
   ): Promise<FlowTransitionResult> => {
+    if (!orchestratorRef.current) {
+      console.error('[FlowOrchestrator] Not initialized yet (SSR?)')
+      return {
+        transitionId: '',
+        idempotencyKey: '',
+        snapshotVersion: ctx.snapshotVersion,
+        action,
+        fromState: ctx.currentState,
+        toState: ctx.currentState,
+        effects: [],
+        status: 'failed',
+        error: 'Orchestrator not initialized',
+        startedAt: 0,
+        completedAt: 0,
+        durationMs: 0,
+      }
+    }
+
     setStatus('transitioning')
     setLastError(null)
 

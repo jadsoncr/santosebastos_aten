@@ -44,23 +44,28 @@ export default function StageTimeline({ identityId, currentStage }: Props) {
     if (!identityId) { setTransitions([]); return }
 
     async function load() {
-      // Get atendimento_id for this identity
-      const { data: at } = await supabase
-        .from('atendimentos')
-        .select('id')
-        .eq('identity_id', identityId)
-        .maybeSingle()
+      try {
+        // Get atendimento_id for this identity
+        const { data: at } = await supabase
+          .from('atendimentos')
+          .select('id')
+          .eq('identity_id', identityId)
+          .maybeSingle()
 
-      if (!at) { setTransitions([]); return }
+        if (!at) { setTransitions([]); return }
 
-      // Get transitions ordered chronologically
-      const { data } = await supabase
-        .from('status_transitions')
-        .select('status_novo, created_at')
-        .eq('atendimento_id', at.id)
-        .order('created_at', { ascending: true })
+        // Get transitions ordered chronologically
+        const { data } = await supabase
+          .from('status_transitions')
+          .select('status_novo, created_at')
+          .eq('atendimento_id', at.id)
+          .order('created_at', { ascending: true })
 
-      setTransitions(data || [])
+        setTransitions(data || [])
+      } catch (err) {
+        console.warn('[StageTimeline] Failed to load:', err)
+        setTransitions([])
+      }
     }
 
     load()
@@ -69,6 +74,7 @@ export default function StageTimeline({ identityId, currentStage }: Props) {
   if (!currentStage) return null
 
   const resolvedCurrent = resolveStatus(currentStage)
+  if (!resolvedCurrent) return null
 
   // Build timeline: completed transitions + current + next
   const completedStages = transitions
