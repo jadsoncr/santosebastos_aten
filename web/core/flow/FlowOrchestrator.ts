@@ -28,7 +28,7 @@ import { generateIdempotencyKey } from './types'
 import { TRANSITION_MAP } from './transitions'
 
 // Efeitos críticos — falha aborta a cadeia inteira
-const CRITICAL_EFFECTS: Set<FlowEffectType> = new Set([
+const CRITICAL_EFFECTS: Set<FlowEffectType> = new Set<FlowEffectType>([
   'apply_transaction',
   'derive_status',
   'emit_socket',
