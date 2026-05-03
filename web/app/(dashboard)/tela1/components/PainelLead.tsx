@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useSocket } from '@/components/providers/SocketProvider'
 import { usePainelContext } from '@/hooks/usePainelContext'
+import { useFlowOrchestrator } from '@/hooks/useFlowOrchestrator'
 import { useOperadorRole } from '@/hooks/useOperadorRole'
 import { usePainelMode } from '@/utils/painelModes'
 import { resolveTreatment, TREATMENT_TIPOS, TREATMENT_DETALHES, type TreatmentTipo, type TreatmentResult } from '@/utils/resolveTreatment'
@@ -17,6 +18,7 @@ import { getNextStep, ACTION_MAP } from '@/utils/businessStateMachine'
 import { filterChildren, type SegmentNode } from '@/utils/segmentTree'
 import { cn } from '@/lib/utils'
 import PainelHeader from './PainelHeader'
+import StageTimeline from './StageTimeline'
 import type { Lead } from '../page'
 
 interface Props {
@@ -79,6 +81,13 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
   const mode = usePainelMode(ctx.estado_painel)
 
   const { role, operadorId } = useOperadorRole()
+
+  // Flow Orchestrator — motor central de transição
+  const flow = useFlowOrchestrator({
+    refetch: () => ctx.refetch(),
+    onLeadClosed: () => onLeadClosed(),
+    onToast: (msg, type) => showToastMsg(msg, type),
+  })
 
   // Editable fields
   const [editName, setEditName] = useState('')
@@ -214,6 +223,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
 
   // ══════════════════════════════════════════════
   // CONFIRMAR ENCAMINHAMENTO (triagem)
+  // Usa FlowOrchestrator para transição de estado
   // ══════════════════════════════════════════════
   async function handleConfirmar() {
     if (!treatment || !operadorId || !lead) return
@@ -221,6 +231,7 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
     try {
       if (observacao.trim()) await handleSaveNota()
 
+      // 1. Preparar payload de classificação (dados específicos do caso)
       const atendimentoPayload = {
         identity_id: lead.identity_id,
         lead_id: lead.id,
@@ -228,7 +239,6 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         status: 'classificado',
         status_negocio: treatment.status_negocio,
         destino: treatment.destino,
-        estado_painel: treatment.destino === 'backoffice' ? 'em_atendimento' : 'encerrado',
         classificacao_tratamento_tipo: tratamentoTipo,
         classificacao_tratamento_detalhe: tratamentoDetalhe,
         motivo_id: areaId || null,
@@ -238,39 +248,97 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         prazo_proxima_acao: calcularPrazo(treatment.status_negocio)?.toISOString() || null,
       }
 
-      // Try update first (atendimento may already exist from "Novo Contato")
+      // 2. Upsert atendimento (pode já existir de "Novo Contato")
       const { data: existing } = await supabase
         .from('atendimentos')
-        .select('id')
+        .select('id, snapshot_version')
         .eq('identity_id', lead.identity_id)
         .maybeSingle()
 
-      let error: any = null
+      let atendimentoId: string
+      let snapshotVersion: number
+
       if (existing) {
-        const res = await supabase.from('atendimentos').update(atendimentoPayload).eq('identity_id', lead.identity_id)
-        error = res.error
+        // Update com dados de classificação (sem mudar estado_painel — o orchestrator faz isso)
+        const { error } = await supabase.from('atendimentos')
+          .update({
+            ...atendimentoPayload,
+            estado_painel: undefined, // NÃO mudar aqui — orchestrator faz
+          })
+          .eq('identity_id', lead.identity_id)
+        if (error) throw error
+        atendimentoId = existing.id
+        snapshotVersion = existing.snapshot_version ?? 1
       } else {
-        const res = await supabase.from('atendimentos').insert(atendimentoPayload)
-        error = res.error
+        // Insert novo atendimento (estado_painel será definido pelo orchestrator)
+        const { data: inserted, error } = await supabase.from('atendimentos')
+          .insert({ ...atendimentoPayload, estado_painel: 'triagem', snapshot_version: 1 })
+          .select('id, snapshot_version')
+          .single()
+        if (error || !inserted) throw error || new Error('Falha ao criar atendimento')
+        atendimentoId = inserted.id
+        snapshotVersion = inserted.snapshot_version
       }
-      if (error) throw error
 
+      // 3. Salvar classificação jurídica no lead
       if (areaId) {
-        await supabase.from('leads').update({ segmento_id: areaId, assunto_id: categoriaId, especificacao_id: subcategoriaId }).eq('id', lead.id)
+        await supabase.from('leads').update({
+          segmento_id: areaId,
+          assunto_id: categoriaId,
+          especificacao_id: subcategoriaId,
+        }).eq('id', lead.id)
       }
 
-      const { data: at } = await supabase.from('atendimentos').select('id').eq('identity_id', lead.identity_id).maybeSingle()
-      if (at) await supabase.from('status_transitions').insert({ atendimento_id: at.id, status_anterior: null, status_novo: treatment.status_negocio, operador_id: operadorId })
+      // 4. FLOW ORCHESTRATOR — transição de estado via motor central
+      const flowCtx = {
+        atendimentoId,
+        identityId: lead.identity_id!,
+        leadId: lead.id,
+        currentState: 'triagem' as const,
+        currentStage: null,
+        operadorId,
+        snapshotVersion,
+        metadata: {
+          classificationType: tratamentoTipo,
+          destino: treatment.destino,
+          status_negocio: treatment.status_negocio,
+          toStage: treatment.status_negocio,
+        },
+      }
 
+      const result = await flow.run('classificar', flowCtx)
+
+      if (result.status === 'failed') {
+        // Orchestrator já mostrou toast de erro
+        // Refetch para sincronizar estado
+        ctx.refetch()
+        return
+      }
+
+      // 5. Sucesso — orchestrator já fez: update_state, emit_socket, toast, auto_select
+      // Apenas registrar status_transition (audit trail legado)
+      await supabase.from('status_transitions').insert({
+        atendimento_id: atendimentoId,
+        status_anterior: null,
+        status_novo: treatment.status_negocio,
+        operador_id: operadorId,
+      })
+
+      // Socket legado (conversa_classificada) — será removido na Fase 3
       if (socket) {
-        socket.emit('conversa_classificada', { lead_id: lead.id, status_negocio: treatment.status_negocio, destino: treatment.destino })
-        socket.emit('estado_painel_changed', { identity_id: lead.identity_id, lead_id: lead.id, estado_painel: treatment.destino === 'backoffice' ? 'em_atendimento' : 'encerrado' })
+        socket.emit('conversa_classificada', {
+          lead_id: lead.id,
+          status_negocio: treatment.status_negocio,
+          destino: treatment.destino,
+        })
       }
-      showToastMsg(treatment.destino === 'backoffice' ? 'Caso movido para Execução' : 'Decisão encerrada')
-      ctx.refetch()
-      onLeadClosed()
-    } catch (err: any) { showToastMsg(err.message || 'Erro', 'error') }
-    finally { setLoading(false) }
+
+    } catch (err: any) {
+      showToastMsg(err.message || 'Erro', 'error')
+      ctx.refetch() // Rollback visual: refetch estado real
+    } finally {
+      setLoading(false)
+    }
   }
 
   // ── Avançar status_negocio (em_atendimento pipeline) ──
@@ -543,6 +611,11 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto">
+
+        {/* ═══ JORNADA (TIMELINE) ═══ */}
+        {mode.statusAtual && (
+          <StageTimeline identityId={lead.identity_id || null} currentStage={ctx.status_negocio} />
+        )}
 
         {/* ═══ IDENTIDADE + SCORE ═══ */}
         {mode.identidade && (
@@ -1012,12 +1085,12 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
         {mode.botaoConfirmacao && (
           <>
             {treatment ? (
-              <button onClick={handleConfirmar} disabled={!podeConfirmar}
+              <button onClick={handleConfirmar} disabled={!podeConfirmar || flow.isTransitioning}
                 className={cn("w-full py-3 rounded-xl font-semibold text-sm transition-all",
                   isBackoffice ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-800 text-white hover:bg-gray-900',
-                  !podeConfirmar && 'opacity-40 cursor-not-allowed'
+                  (!podeConfirmar || flow.isTransitioning) && 'opacity-40 cursor-not-allowed'
                 )}>
-                {loading ? 'Processando...' : 'Executar decisão'}
+                {loading || flow.isTransitioning ? 'Processando...' : 'Executar decisão'}
               </button>
             ) : (
               <button disabled className="w-full py-3 rounded-xl font-semibold text-sm bg-gray-100 text-gray-400 cursor-not-allowed">

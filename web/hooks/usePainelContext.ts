@@ -8,6 +8,7 @@ import type { EstadoPainel } from '@/utils/painelModes'
 export interface PainelContext {
   lead_id: string
   identity_id: string | null
+  atendimento_id: string | null
   estado_painel: EstadoPainel | null
   status_negocio: string | null
   owner_id: string | null
@@ -21,12 +22,14 @@ export interface PainelContext {
   ciclo: number | null
   percentual_exito: number | null
   estado_valor: string | null
+  snapshot_version: number
   loading: boolean
   refetch: () => void
 }
 
 const EMPTY_CTX: Omit<PainelContext, 'lead_id' | 'refetch'> = {
   identity_id: null,
+  atendimento_id: null,
   estado_painel: null,
   status_negocio: null,
   owner_id: null,
@@ -40,6 +43,7 @@ const EMPTY_CTX: Omit<PainelContext, 'lead_id' | 'refetch'> = {
   ciclo: null,
   percentual_exito: null,
   estado_valor: null,
+  snapshot_version: 0,
   loading: false,
 }
 
@@ -74,7 +78,7 @@ export function usePainelContext(lead: LeadInput | null): PainelContext {
       if (lead.identity_id) {
         const res = await supabase
           .from('atendimentos')
-          .select('owner_id, estado_painel, status_negocio, destino, prazo_proxima_acao, motivo_perda, valor_contrato, status_pagamento, encerrado_em, ciclo, percentual_exito, estado_valor')
+          .select('id, owner_id, estado_painel, status_negocio, destino, prazo_proxima_acao, motivo_perda, valor_contrato, status_pagamento, encerrado_em, ciclo, percentual_exito, estado_valor, snapshot_version')
           .eq('identity_id', lead.identity_id)
           .maybeSingle()
         data = res.data
@@ -94,6 +98,7 @@ export function usePainelContext(lead: LeadInput | null): PainelContext {
 
         setCtx({
           identity_id: lead.identity_id || null,
+          atendimento_id: data.id || null,
           estado_painel: data.estado_painel as EstadoPainel | null,
           status_negocio: data.status_negocio,
           owner_id: data.owner_id,
@@ -107,10 +112,11 @@ export function usePainelContext(lead: LeadInput | null): PainelContext {
           ciclo: data.ciclo,
           percentual_exito: data.percentual_exito,
           estado_valor: data.estado_valor || 'indefinido',
+          snapshot_version: data.snapshot_version ?? 1,
           loading: false,
         })
       } else {
-        setCtx({ ...EMPTY_CTX, identity_id: lead.identity_id || null })
+        setCtx({ ...EMPTY_CTX, identity_id: lead.identity_id || null, atendimento_id: null })
       }
     } catch {
       setCtx(prev => ({ ...prev, loading: false }))
