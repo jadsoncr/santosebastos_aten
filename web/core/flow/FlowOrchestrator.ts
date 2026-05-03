@@ -80,7 +80,9 @@ export class FlowOrchestrator {
     const snapshot: Readonly<FlowContext> = Object.freeze({ ...ctx })
 
     // 2. Gerar IDs
-    const transitionId = crypto.randomUUID()
+    const transitionId = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
     const idempotencyKey = generateIdempotencyKey(action, snapshot.atendimentoId, snapshot.snapshotVersion)
 
     // 3. Lookup no mapa
