@@ -78,18 +78,13 @@ export function usePainelContext(lead: LeadInput | null): PainelContext {
       if (lead.identity_id) {
         const res = await supabase
           .from('atendimentos')
-          .select('id, owner_id, estado_painel, status_negocio, destino, prazo_proxima_acao, motivo_perda, valor_contrato, status_pagamento, encerrado_em, ciclo, percentual_exito, estado_valor, snapshot_version')
+          .select('id, owner_id, estado_painel, status_negocio, destino, prazo_proxima_acao, motivo_perda, valor_contrato, status_pagamento, encerrado_em, ciclo, percentual_exito, estado_valor')
           .eq('identity_id', lead.identity_id)
           .maybeSingle()
         data = res.data
-        // If snapshot_version column doesn't exist yet (migration not run), ignore error
-        if (res.error && res.error.message?.includes('snapshot_version')) {
-          const fallback = await supabase
-            .from('atendimentos')
-            .select('id, owner_id, estado_painel, status_negocio, destino, prazo_proxima_acao, motivo_perda, valor_contrato, status_pagamento, encerrado_em, ciclo, percentual_exito, estado_valor')
-            .eq('identity_id', lead.identity_id)
-            .maybeSingle()
-          data = fallback.data ? { ...fallback.data, snapshot_version: 1 } : null
+        // Add snapshot_version if available (column may not exist yet)
+        if (data) {
+          data.snapshot_version = data.snapshot_version ?? 1
         }
       }
 

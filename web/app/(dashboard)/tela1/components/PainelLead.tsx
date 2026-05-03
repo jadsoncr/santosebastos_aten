@@ -251,12 +251,12 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
       // 2. Upsert atendimento (pode já existir de "Novo Contato")
       const { data: existing } = await supabase
         .from('atendimentos')
-        .select('id, snapshot_version')
+        .select('id')
         .eq('identity_id', lead.identity_id)
         .maybeSingle()
 
       let atendimentoId: string
-      let snapshotVersion: number
+      let snapshotVersion: number = 1
 
       if (existing) {
         // Update com dados de classificação (sem mudar estado_painel — o orchestrator faz isso)
@@ -268,16 +268,17 @@ export default function PainelLead({ lead, onLeadUpdate, onLeadClosed }: Props) 
           .eq('identity_id', lead.identity_id)
         if (error) throw error
         atendimentoId = existing.id
-        snapshotVersion = existing.snapshot_version ?? 1
+        // Fetch snapshot_version separately (column may not exist yet)
+        snapshotVersion = ctx.snapshot_version || 1
       } else {
         // Insert novo atendimento (estado_painel será definido pelo orchestrator)
         const { data: inserted, error } = await supabase.from('atendimentos')
-          .insert({ ...atendimentoPayload, estado_painel: 'triagem', snapshot_version: 1 })
-          .select('id, snapshot_version')
+          .insert({ ...atendimentoPayload, estado_painel: 'triagem' })
+          .select('id')
           .single()
         if (error || !inserted) throw error || new Error('Falha ao criar atendimento')
         atendimentoId = inserted.id
-        snapshotVersion = inserted.snapshot_version
+        snapshotVersion = 1
       }
 
       // 3. Salvar classificação jurídica no lead
